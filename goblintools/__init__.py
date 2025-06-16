@@ -1,5 +1,5 @@
-from .file_processor import FileValidator, ArchiveHandler, FileManager
-from .text_extractor import TextExtractor
+from .file_handling import FileValidator, ArchiveHandler, FileManager
+from .parser import TextExtractor
 from .text_cleaner import TextCleaner
 
 __all__ = ['FileValidator', 'ArchiveHandler', 'FileManager', 

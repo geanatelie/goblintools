@@ -1,0 +1,16 @@
+boto3
+patool
+rarfile
+opencv-python
+numpy
+pdf2image
+PyPDF2
+beautifulsoup4
+striprtf
+dbfread
+python-docx
+python-pptx
+openpyxl
+xlrd
+odfpy
+unidecode

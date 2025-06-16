@@ -20,7 +20,6 @@ setup(
         "openpyxl",
         "xlrd",
         "odfpy",
-        "textract",
         "unidecode"
     ],
     author="Gean Matos",

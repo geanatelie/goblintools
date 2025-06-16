@@ -26,7 +26,6 @@ dependencies = [
     "openpyxl",
     "xlrd",
     "odfpy",
-    "textract",
     "unidecode"
 ]
 

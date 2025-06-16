@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goblintools"
+version = "0.1.0"
+description = "Toolkit for archive extraction, OCR parsing, and file text extraction"
+authors = [{ name="Gean Matos", email="gean@webgoal.com.br" }]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.7"
+dependencies = [
+    "patool",
+    "rarfile",
+    "boto3",
+    "opencv-python",
+    "numpy",
+    "pdf2image",
+    "PyPDF2",
+    "beautifulsoup4",
+    "striprtf",
+    "dbfread",
+    "python-docx",
+    "python-pptx",
+    "openpyxl",
+    "xlrd",
+    "odfpy",
+    "textract",
+    "unidecode"
+]
+
+[project.urls]
+Homepage = "https://github.com/geanatelie/goblintools.git"
+Repository = "https://github.com/geanatelie/goblintools.git"

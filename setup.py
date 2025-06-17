@@ -8,7 +8,7 @@ setup(
         "patool",
         "rarfile",
         "boto3",
-        "opencv-python",
+        "opencv-python-headless",
         "numpy",
         "pdf2image",
         "PyPDF2",
@@ -20,7 +20,11 @@ setup(
         "openpyxl",
         "xlrd",
         "odfpy",
-        "unidecode"
+        "textract",
+        "unidecode",
+        "pytesseract",
+        "scipy",
+        "pillow"
     ],
     author="Gean Matos",
     author_email="gean@webgoal.com.br",

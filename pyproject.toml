@@ -14,7 +14,7 @@ dependencies = [
     "patool",
     "rarfile",
     "boto3",
-    "opencv-python",
+    "opencv-python-headless",
     "numpy",
     "pdf2image",
     "PyPDF2",
@@ -26,7 +26,12 @@ dependencies = [
     "openpyxl",
     "xlrd",
     "odfpy",
-    "unidecode"
+    "textract",
+    "unidecode",
+    "pytesseract",
+    "scipy",
+    "pillow"
+    
 ]
 
 [project.urls]

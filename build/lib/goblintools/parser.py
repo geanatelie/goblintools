@@ -18,7 +18,6 @@ try:
     from odf import text, teletype
     from odf.opendocument import load
     from odf.text import P
-    from ocr_parser import OCRProcessor
 except ImportError as e:
     logging.warning(f"Optional dependency not found: {e}. Some file formats may not be supported.")
 
@@ -28,18 +27,14 @@ logger = logging.getLogger(__name__)
 class TextExtractor:
     """Main class for handling text extraction from various file formats."""
     
-    def __init__(self, ocr_handler = False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1'):
+    def __init__(self, ocr_handler: Optional[Callable] = None):
         """
         Initialize the text extractor.
         
         Args:
             ocr_handler: Optional function to handle OCR for image-based PDFs
         """
-        if ocr_handler:
-            self.ocr_handler = OCRProcessor(use_aws, aws_access_key, aws_secret_key, aws_region)
-        else:
-            self.ocr_handler = None
-
+        self.ocr_handler = ocr_handler
         self._parsers = self._initialize_parsers()
 
     def _initialize_parsers(self) -> Dict[str, Callable]:
@@ -136,11 +131,7 @@ class TextExtractor:
 
         # Fallback to OCR if text extraction failed and images were found
         if (not extracted_text.strip()) and has_images and self.ocr_handler:
-            return self.ocr_handler.extract_text_from_pdf(file_path)
-        elif not self.ocr_handler:
-            logger.warning(f"The file {file_path}, requires OCR but it was not enabled.")
-        else:
-            logger.warning(f"Unable to process {file_path}.")
+            return self.ocr_handler(file_path)
             
         return extracted_text
 

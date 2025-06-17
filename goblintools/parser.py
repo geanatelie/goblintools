@@ -18,7 +18,7 @@ try:
     from odf import text, teletype
     from odf.opendocument import load
     from odf.text import P
-    from ocr_parser import OCRProcessor
+    from goblintools.ocr_parser import OCRProcessor
 except ImportError as e:
     logging.warning(f"Optional dependency not found: {e}. Some file formats may not be supported.")
 

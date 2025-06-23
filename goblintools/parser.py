@@ -13,6 +13,7 @@ try:
     import docx
     from pptx import Presentation
     from PyPDF2 import PdfReader
+    from PyPDF2.generic import IndirectObject
     import openpyxl
     import xlrd
     from odf import text, teletype
@@ -127,19 +128,25 @@ class TextExtractor:
             reader = PdfReader(f)
             for page in reader.pages:
                 extracted_text += page.extract_text() or ''
-                if not has_images and '/XObject' in page.get('/Resources', {}):
-                    xObject = page['/Resources']['/XObject'].get_object()
+                # Resolva o objeto /Resources se for um IndirectObject
+                resources = page.get('/Resources')
+                if isinstance(resources, IndirectObject):
+                    resources = resources.get_object()
+                if not has_images and resources and '/XObject' in resources:
+                    xObject = resources['/XObject']
+                    if isinstance(xObject, IndirectObject):
+                        xObject = xObject.get_object()
                     has_images = any(
-                        xObject[obj]['/Subtype'] == '/Image'
+                        xObject[obj].get('/Subtype') == '/Image'
                         for obj in xObject
                     )
 
-        # Fallback to OCR if text extraction failed and images were found
+        # Fallback para OCR
         if (not extracted_text.strip()) and has_images and self.ocr_handler:
             return self.ocr_handler.extract_text_from_pdf(file_path)
-        elif not self.ocr_handler:
+        elif not self.ocr_handler and (not extracted_text.strip()) and has_images:
             logger.warning(f"The file {file_path}, requires OCR but it was not enabled.")
-            
+        
         return extracted_text
 
     def _extract_docx(self, file_path: str) -> str:
@@ -307,15 +314,3 @@ class TextExtractor:
         except Exception as e:
             logger.error(f"Error processing DBF file {file_path}: {e}")
             return ""
-
-
-# Legacy functions for backward compatibility
-def parsers() -> Dict[str, Callable]:
-    extractor = TextExtractor()
-    return extractor._parsers
-
-def parse_to_string(file_path: str) -> str:
-    return TextExtractor().extract_from_file(file_path)
-
-def files_to_string(folder_path: str) -> str:
-    return TextExtractor().extract_from_folder(folder_path)

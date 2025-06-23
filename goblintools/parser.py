@@ -11,6 +11,7 @@ from dbfread import DBF
 # Document processing libraries (conditional imports)
 try:
     import docx
+    import subprocess
     from pptx import Presentation
     from PyPDF2 import PdfReader
     from PyPDF2.generic import IndirectObject
@@ -118,11 +119,24 @@ class TextExtractor:
 
         return ' '.join(extracted_text)
 
+    def resave_pdf(self, file_path):
+        directory, filename = os.path.split(file_path)
+        resaved_file = os.path.join(directory, f"{os.path.splitext(filename)[0]}_resaved.pdf")
+
+        try:
+            subprocess.run(['pdftocairo', '-pdf', file_path, resaved_file], check=True)
+            return resaved_file
+        
+        except Exception as e:
+            logger.exception(f"[EXCEPTION] - Error occurred while re-saving the file {file_path}: {e}")
+        return file_path
+
     # Individual parser methods
     def _extract_pdf(self, file_path: str) -> str:
         """Extract text from PDF files, with fallback to OCR if needed."""
         has_images = False
         extracted_text = ''
+        file_path = self.resave_pdf(file_path)
         
         with open(file_path, 'rb') as f:
             reader = PdfReader(f)

@@ -139,8 +139,6 @@ class TextExtractor:
             return self.ocr_handler.extract_text_from_pdf(file_path)
         elif not self.ocr_handler:
             logger.warning(f"The file {file_path}, requires OCR but it was not enabled.")
-        else:
-            logger.warning(f"Unable to process {file_path}.")
             
         return extracted_text
 

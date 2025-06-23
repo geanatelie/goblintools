@@ -11,7 +11,7 @@ setup(
         "opencv-python-headless",
         "numpy",
         "pdf2image",
-        "PyPDF2",
+        "pypdf",
         "beautifulsoup4",
         "striprtf",
         "dbfread",

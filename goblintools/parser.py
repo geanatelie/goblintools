@@ -7,10 +7,9 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from striprtf.striprtf import rtf_to_text
 from dbfread import DBF
-import subprocess
 from pptx import Presentation
-from PyPDF2 import PdfReader
-from PyPDF2.generic import IndirectObject
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import IndirectObject
 import openpyxl
 import xlrd
 from odf import text, teletype
@@ -121,49 +120,63 @@ class TextExtractor:
 
         return ' '.join(extracted_text)
 
-    def resave_pdf(self, file_path):
-        directory, filename = os.path.split(file_path)
-        resaved_file = os.path.join(directory, f"{os.path.splitext(filename)[0]}_resaved.pdf")
+    def _resave_pdf(self, file_path: str) -> str:
+        from pypdf import PdfReader, PdfWriter
 
-        try:
-            subprocess.run(['pdftocairo', '-pdf', file_path, resaved_file], check=True)
-            return resaved_file
+        reader = PdfReader(file_path)
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+
+        output_path = Path(file_path).with_suffix(".resaved.pdf")
+        with open(output_path, 'wb') as f:
+            writer.write(f)
         
-        except Exception as e:
-            logger.exception(f"[EXCEPTION] - Error occurred while re-saving the file {file_path}: {e}")
-        return file_path
+        return str(output_path)
 
     # Individual parser methods
     def _extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF files, with fallback to OCR if needed."""
-        has_images = False
+        """Extract text from PDF files using PyPDF, with fallback to OCR if needed."""
         extracted_text = ''
-        file_path = self.resave_pdf(file_path)
-        
-        with open(file_path, 'rb') as f:
-            reader = PdfReader(f)
-            for page in reader.pages:
-                extracted_text += page.extract_text() or ''
-                # Resolva o objeto /Resources se for um IndirectObject
-                resources = page.get('/Resources')
-                if isinstance(resources, IndirectObject):
-                    resources = resources.get_object()
-                if not has_images and resources and '/XObject' in resources:
-                    xObject = resources['/XObject']
-                    if isinstance(xObject, IndirectObject):
-                        xObject = xObject.get_object()
-                    has_images = any(
-                        xObject[obj].get('/Subtype') == '/Image'
-                        for obj in xObject
-                    )
+        has_images = False
+
+        # Reescreve PDF para corrigir estrutura (evita erros de múltiplas definições)
+        file_path = self._resave_pdf(file_path)
+
+        try:
+            reader = PdfReader(file_path)
+
+            for i, page in enumerate(reader.pages):
+                try:
+                    extracted_text += page.extract_text() or ''
+
+                    resources = page.get('/Resources')
+                    if isinstance(resources, IndirectObject):
+                        resources = resources.get_object()
+
+                    if not has_images and resources and '/XObject' in resources:
+                        xObject = resources['/XObject']
+                        if isinstance(xObject, IndirectObject):
+                            xObject = xObject.get_object()
+                        has_images = any(
+                            xObject[obj].get('/Subtype') == '/Image'
+                            for obj in xObject
+                        )
+                except Exception as e:
+                    logger.warning(f"Error reading page {i} of {file_path}: {e}")
+
+        except Exception as e:
+            logger.error(f"Failed to open PDF {file_path}: {e}")
+            return ''
 
         # Fallback para OCR
-        if (not extracted_text.strip()) and has_images and self.ocr_handler:
-            logger.info(f"File: {file_path} - Needed ocr.")
-            return self.ocr_handler.extract_text_from_pdf(file_path)
-        elif not self.ocr_handler and (not extracted_text.strip()) and has_images:
-            logger.warning(f"The file {file_path}, requires OCR but it was not enabled.")
-        
+        if not extracted_text.strip() and has_images:
+            if self.ocr_handler:
+                logger.info(f"OCR required for file: {file_path}")
+                return self.ocr_handler.extract_text_from_pdf(file_path)
+            else:
+                logger.warning(f"The file {file_path} requires OCR but no handler was provided.")
+
         return extracted_text
 
     def _extract_docx(self, file_path: str) -> str:

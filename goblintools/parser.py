@@ -7,20 +7,22 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from striprtf.striprtf import rtf_to_text
 from dbfread import DBF
+import subprocess
+from pptx import Presentation
+from PyPDF2 import PdfReader
+from PyPDF2.generic import IndirectObject
+import openpyxl
+import xlrd
+from odf import text, teletype
+from odf.opendocument import load
+from odf.text import P
+import docx
+from goblintools.ocr_parser import OCRProcessor
 
 # Document processing libraries (conditional imports)
 try:
-    import docx
-    import subprocess
-    from pptx import Presentation
-    from PyPDF2 import PdfReader
-    from PyPDF2.generic import IndirectObject
-    import openpyxl
-    import xlrd
-    from odf import text, teletype
-    from odf.opendocument import load
-    from odf.text import P
-    from goblintools.ocr_parser import OCRProcessor
+    import textract
+
 except ImportError as e:
     logging.warning(f"Optional dependency not found: {e}. Some file formats may not be supported.")
 
@@ -157,6 +159,7 @@ class TextExtractor:
 
         # Fallback para OCR
         if (not extracted_text.strip()) and has_images and self.ocr_handler:
+            logger.info(f"File: {file_path} - Needed ocr.")
             return self.ocr_handler.extract_text_from_pdf(file_path)
         elif not self.ocr_handler and (not extracted_text.strip()) and has_images:
             logger.warning(f"The file {file_path}, requires OCR but it was not enabled.")
@@ -270,17 +273,15 @@ class TextExtractor:
             return ""
 
     def _extract_xlsx(self, file_path: str) -> str:
-        """Extract text from modern Excel files."""
+        """Extract evaluated text content from Excel files."""
         try:
-            wb = openpyxl.load_workbook(file_path)
+            wb = openpyxl.load_workbook(file_path, data_only=True)
             texts = []
-            for sheet in wb:
-                texts.extend(
-                    str(cell) 
-                    for row in sheet.iter_rows(values_only=True) 
-                    for cell in row 
-                    if cell is not None
-                )
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    for cell in row:
+                        if cell is not None:
+                            texts.append(str(cell))
             return ' '.join(texts)
         except Exception as e:
             logger.error(f"Error processing XLSX file {file_path}: {e}")
@@ -289,13 +290,15 @@ class TextExtractor:
     def _extract_xls(self, file_path: str) -> str:
         """Extract text from legacy Excel files."""
         try:
-            sheet = xlrd.open_workbook(file_path).sheet_by_index(0)
-            return ' '.join(
-                str(col.value) 
-                for rw in range(sheet.nrows) 
-                for col in sheet.row(rw) 
-                if col.value
-            )
+            book = xlrd.open_workbook(file_path, formatting_info=False)
+            texts = []
+            for sheet in book.sheets():
+                for row_idx in range(sheet.nrows):
+                    for cell in sheet.row(row_idx):
+                        value = cell.value
+                        if value and not str(value).startswith('='):
+                            texts.append(str(value))
+            return ' '.join(texts)
         except Exception as e:
             logger.error(f"Error processing XLS file {file_path}: {e}")
             return ""

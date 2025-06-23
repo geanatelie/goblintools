@@ -16,10 +16,10 @@ opencv-python-headless
 pdf2image
 rarfile
 unrar
-textract
 pytest
 pytest-mock
 setuptools
 dbfread
 pytesseract
 scipy
+textract

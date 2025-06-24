@@ -140,7 +140,6 @@ class TextExtractor:
         extracted_text = ''
         has_images = False
 
-        # Reescreve PDF para corrigir estrutura (evita erros de múltiplas definições)
         file_path = self._resave_pdf(file_path)
 
         try:

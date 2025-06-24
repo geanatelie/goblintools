@@ -4,6 +4,7 @@ import zipfile
 import patoolib
 from pathlib import Path
 import logging
+import tempfile
 import rarfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Callable
@@ -97,23 +98,40 @@ class ArchiveHandler:
 
     @classmethod
     def extract(cls, file_path: str, destination: str) -> bool:
-        """Extract any supported archive format."""
+        """Extract any supported archive format safely, avoiding file name collisions."""
         if FileValidator.is_empty(file_path):
             return False
 
         try:
             ext = Path(file_path).suffix.lower()
-            if ext in cls._SUPPORTED_FORMATS:
-                cls._SUPPORTED_FORMATS[ext](file_path, destination)
-            else:
-                # Fallback to patoolib for all other formats
-                patoolib.extract_archive(file_path, outdir=destination, verbosity=-1)
-            
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                if ext in cls._SUPPORTED_FORMATS:
+                    cls._SUPPORTED_FORMATS[ext](file_path, tmpdir)
+                else:
+                    patoolib.extract_archive(file_path, outdir=tmpdir, verbosity=-1)
+
+                for root, _, files in os.walk(tmpdir):
+                    for name in files:
+                        src_file = os.path.join(root, name)
+                        rel_path = os.path.relpath(src_file, tmpdir)
+                        dest_file = os.path.join(destination, rel_path)
+
+                        base, ext = os.path.splitext(dest_file)
+                        counter = 1
+                        while os.path.exists(dest_file):
+                            dest_file = f"{base}_{counter}{ext}"
+                            counter += 1
+                        
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.move(src_file, dest_file)
+
             os.remove(file_path)
             return True
+
         except Exception as e:
             logger.exception(f"Error extracting {file_path}: {e}")
-            if os.path.exists(file_path):  # Clean up if extraction failed
+            if os.path.exists(file_path):
                 os.remove(file_path)
             return False
 

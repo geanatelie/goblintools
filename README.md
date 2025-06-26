@@ -13,7 +13,7 @@ pip install goblintools
 
 Note:
 - GoblinTools requires Python 3.7 or newer.
-- For OCR support, you must install Tesseract OCR separately.
+- For OCR support, you must install Tesseract OCR separately [https://github.com/tesseract-ocr/tesseract].
 - For AWS Textract support, valid AWS credentials are required.
 
 ---
@@ -96,8 +96,8 @@ else:
 
 ```python
 folder_path = "/path/to/your/folder"
-# text_from_folder = extractor.extract_from_folder(folder_path)
-# print(f"\nExtracted text from folder: {text_from_folder[:500]}...")
+text_from_folder = extractor.extract_from_folder(folder_path)
+print(f"\nExtracted text from folder: {text_from_folder[:500]}...")
 ```
 
 ---
@@ -112,10 +112,10 @@ output_folder = "extracted_content"
 os.makedirs(output_folder, exist_ok=True)
 
 # Recursive extraction
-# FileManager.extract_files_recursive("archive.zip", output_folder)
+FileManager.extract_files_recursive("archive.zip", output_folder)
 
 # Batch extraction
-# FileManager.batch_extract(["a.zip", "b.rar"], output_folder)
+FileManager.batch_extract(["a.zip", "b.rar"], output_folder)
 ```
 
 ---
@@ -153,7 +153,7 @@ extractor = TextExtractor(
 )
 
 # Example:
-# text = extractor.extract_from_file("aws_scanned_document.pdf")
+text = extractor.extract_from_file("aws_scanned_document.pdf")
 ```
 
 ---
@@ -184,19 +184,19 @@ from goblintools import FileManager
 source = "path/to/source.txt"
 destination = "path/to/destination.txt"
 
-# FileManager.move_file(source, destination)
+FileManager.move_file(source, destination)
 ```
 
 ### Delete a Folder and Its Contents
 
 ```python
-# FileManager.delete_folder("temp_folder")
+FileManager.delete_folder("temp_folder")
 ```
 
 ### Delete a File if It's Empty
 
 ```python
-# FileManager.delete_if_empty("empty_file.txt")
+FileManager.delete_if_empty("empty_file.txt")
 ```
 
 ### Normalize and Move All Files in a Directory
@@ -204,7 +204,7 @@ destination = "path/to/destination.txt"
 Moves all files to the root of the folder, renames to avoid conflicts, and removes empty subfolders.
 
 ```python
-# FileManager.move_files("path/to/root_folder")
+FileManager.move_files("path/to/root_folder")
 ```
 
 ---

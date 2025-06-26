@@ -13,8 +13,8 @@ pip install goblintools
 
 Note:
 - GoblinTools requires Python 3.7 or newer.
-- For OCR support, you must install Tesseract OCR separately [https://github.com/tesseract-ocr/tesseract].
-- For AWS Textract support, valid AWS credentials are required.
+- For local OCR support, you must install Tesseract OCR separately [https://github.com/tesseract-ocr/tesseract].
+- For cloud OCR AWS Textract support is needed, valid AWS credentials are required.
 
 ---
 

@@ -87,7 +87,7 @@ if os.path.exists(scanned_pdf_path):
         print("\nSuccessfully extracted text from scanned document (with OCR):")
         print(scanned_text[:200] + "...")
     else:
-        print(f"Could not extract text from {scanned_pdf_path} (OCR might be needed).")
+        print(f"Could not extract text from {scanned_pdf_path}.")
 else:
     print(f"\nSkipping scanned document example: File not found at {scanned_pdf_path}")
 ```

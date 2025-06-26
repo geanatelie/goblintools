@@ -119,6 +119,15 @@ class TextExtractor:
                     extracted_text.append(text)
 
         return ' '.join(extracted_text)
+    
+    def pdf_needs_ocr(self, file_path: str) -> bool:
+        with open(file_path, 'rb') as f:
+            reader = PdfReader(f)
+            for page in reader.pages:
+                text = page.extract_text()
+                if text and not text.isspace():
+                    return False
+        return True
 
     def _resave_pdf(self, file_path: str) -> str:
         from pypdf import PdfReader, PdfWriter

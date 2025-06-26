@@ -207,6 +207,15 @@ Moves all files to the root of the folder, renames to avoid conflicts, and remov
 FileManager.move_files("path/to/root_folder")
 ```
 
+
+## Text Extraction Utilities
+
+### Verify  if a PDF file needs OCR treatment
+
+```python
+if extractor.pdf_needs_ocr("scanned_document.pdf")
+    print("Needs OCR!")
+```
 ---
 
 ## License

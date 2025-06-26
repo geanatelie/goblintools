@@ -6,6 +6,8 @@
 # Node artifact files
 node_modules/
 dist/
+build/
+goblintools.egg-info/
 
 # Compiled Java class files
 *.class

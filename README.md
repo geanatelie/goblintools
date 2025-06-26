@@ -213,6 +213,9 @@ FileManager.move_files("path/to/root_folder")
 ### Verify  if a PDF file needs OCR treatment
 
 ```python
+from goblintools import TextExtractor
+
+extractor = TextExtractor()
 if extractor.pdf_needs_ocr("scanned_document.pdf")
     print("Needs OCR!")
 ```

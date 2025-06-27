@@ -11,111 +11,183 @@
 pip install goblintools
 ```
 
-Note:
-- GoblinTools requires Python 3.7 or newer.
-- For local OCR support, you must install Tesseract OCR separately [https://github.com/tesseract-ocr/tesseract].
-- For cloud OCR AWS Textract support is needed, valid AWS credentials are required.
+## Requirements
+
+- **Python**: 3.7 or newer
+- **Tesseract OCR**: Required for local OCR support ([Installation Guide](https://github.com/tesseract-ocr/tesseract))
+- **AWS Credentials**: Required for AWS Textract cloud OCR
 
 ---
 
-### System Requirements
+## System Dependencies
 
-Some archive formats such as `.rar`, `.7z`, `.tar`, and others depend on external system tools to be extracted properly. These tools are not Python packages and must be installed manually. `patoolib` (used by GoblinTools) relies on them.
+For complete archive format support, install these system tools (required by `patoolib`):
 
-#### Debian/Ubuntu
-
-```bash
-sudo apt install unrar p7zip-full p7zip-rar
-```
-
-#### Arch Linux
-
-```bash
-sudo pacman -S unrar p7zip
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install unrar p7zip
-```
+| OS | Command |
+|----|---------|
+| **Debian/Ubuntu** | `sudo apt install unrar p7zip-full p7zip-rar` |
+| **Arch Linux** | `sudo pacman -S unrar p7zip` |
+| **macOS** | `brew install unrar p7zip` |
 
 ---
 
 ## Key Features
 
-- Broad File Support: Extract text from over 20 document, spreadsheet, and presentation formats.
-- Comprehensive Archive Handling: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and many more.
-- Flexible OCR Integration: Use Tesseract locally or integrate with AWS Textract.
-- Advanced Text Cleaning: Accent removal, lowercasing, and intelligent stopword filtering (Portuguese support).
-- Efficient Batch Processing: Handle multiple archives in parallel.
-- Robust File Management: Move, delete, and organize files/directories with ease.
+- 📄 **Broad File Support**: Extract text from 20+ document, spreadsheet, and presentation formats
+- 📦 **Archive Handling**: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and 30+ more formats
+- 🔍 **OCR Integration**: Local Tesseract or cloud AWS Textract support
+- 🧹 **Text Cleaning**: Accent removal, case normalization, stopword filtering (Portuguese support)
+- ⚡ **Batch Processing**: Parallel archive extraction
+- 📁 **File Management**: Comprehensive file/directory operations
 
 ---
 
-## Usage
+## Quick Start
 
-### Text Extraction
+### Basic Text Extraction
 
 ```python
 from goblintools import TextExtractor
-import os
 
 extractor = TextExtractor()
-file_path = "example.pdf"
-
-if os.path.exists(file_path):
-    text = extractor.extract_from_file(file_path)
-    if text:
-        print("Successfully extracted text:")
-        print(text[:200] + "...")
-    else:
-        print(f"Could not extract text from {file_path}.")
-else:
-    print(f"Error: File not found at {file_path}")
+text = extractor.extract_from_file("document.pdf")
+print(text[:200] + "..." if text else "No text extracted")
 ```
 
-#### With OCR Enabled
+### OCR-Enabled Extraction
 
 ```python
-extractor_with_ocr = TextExtractor(ocr_handler=True)
-scanned_pdf_path = "scanned_document.pdf"
+# Local OCR with Tesseract
+extractor = TextExtractor(ocr_handler=True)
+text = extractor.extract_from_file("scanned_document.pdf")
 
-if os.path.exists(scanned_pdf_path):
-    scanned_text = extractor_with_ocr.extract_from_file(scanned_pdf_path)
-    if scanned_text:
-        print("\nSuccessfully extracted text from scanned document (with OCR):")
-        print(scanned_text[:200] + "...")
-    else:
-        print(f"Could not extract text from {scanned_pdf_path}.")
-else:
-    print(f"\nSkipping scanned document example: File not found at {scanned_pdf_path}")
+# AWS Textract OCR
+extractor = TextExtractor(
+    ocr_handler=True,
+    use_aws=True,
+    aws_access_key="your-key",
+    aws_secret_key="your-secret",
+    aws_region="us-east-1"
+)
+text = extractor.extract_from_file("document.pdf")
 ```
 
-#### Extracting All Text from a Folder
+### Configuration Management
 
 ```python
-folder_path = "/path/to/your/folder"
-text_from_folder = extractor.extract_from_folder(folder_path)
-print(f"\nExtracted text from folder: {text_from_folder[:500]}...")
+from goblintools import GoblinConfig, OCRConfig, TextExtractor
+
+# Create config programmatically
+config = GoblinConfig(
+    max_file_size=50 * 1024 * 1024,  # 50MB limit
+    ocr=OCRConfig(
+        use_aws=True,
+        aws_access_key="your-key",
+        aws_secret_key="your-secret",
+        aws_region="us-west-2",
+        tesseract_lang="eng"  # English OCR
+    )
+)
+
+# Use config with extractor
+extractor = TextExtractor(ocr_handler=True, config=config)
+
+# Save config to file
+config.to_file("goblin_config.json")
+
+# Load config from file
+config = GoblinConfig.from_file("goblin_config.json")
+extractor = TextExtractor(ocr_handler=True, config=config)
+```
+
+**Example config file (`goblin_config.json`):**
+```json
+{
+  "max_file_size": 52428800,
+  "ocr": {
+    "use_aws": true,
+    "aws_access_key": "your-key",
+    "aws_secret_key": "your-secret",
+    "aws_region": "us-west-2",
+    "tesseract_lang": "eng"
+  }
+}
+```
+
+### Advanced Features
+
+```python
+# Extract from entire folder (respects max_file_size limit)
+text = extractor.extract_from_folder("/path/to/documents")
+
+# Check if PDF needs OCR
+if extractor.pdf_needs_ocr("document.pdf"):
+    print("This PDF requires OCR processing")
+
+# Validate installation
+status = extractor.validate_installation()
+print(f"Tesseract available: {status['tesseract']}")
+if 'aws_textract' in status:
+    print(f"AWS Textract available: {status['aws_textract']}")
+
+# Add custom file parser
+def custom_parser(file_path):
+    # Your custom extraction logic
+    return "extracted text"
+
+extractor.add_parser('.custom', custom_parser)
+text = extractor.extract_from_file("file.custom")
+
+# Direct OCR processing with config
+from goblintools.ocr_parser import OCRProcessor
+from goblintools import OCRConfig
+
+ocr_config = OCRConfig(use_aws=True, aws_access_key="key", aws_secret_key="secret")
+ocr = OCRProcessor(ocr_config)
+text = ocr.extract_text_from_pdf("scanned.pdf")
 ```
 
 ---
 
-### File Management & Archive Extraction
+### Archive Extraction
 
 ```python
-from goblintools import FileManager
-import os
+from goblintools import FileManager, FileValidator, ArchiveHandler
 
-output_folder = "extracted_content"
-os.makedirs(output_folder, exist_ok=True)
+# Single archive extraction (handles nested archives)
+FileManager.extract_files_recursive("archive.zip", "output_folder")
 
-# Recursive extraction
-FileManager.extract_files_recursive("archive.zip", output_folder)
+# Parallel batch extraction
+results = FileManager.batch_extract(["file1.zip", "file2.rar"], "output_folder")
+print(f"Extraction results: {results}")  # [True, False, ...]
 
-# Batch extraction
-FileManager.batch_extract(["a.zip", "b.rar"], output_folder)
+# Batch extraction with progress tracking
+def progress_callback(current, total):
+    print(f"Progress: {current}/{total} ({current/total*100:.1f}%)")
+
+results = FileManager.batch_extract(
+    ["file1.zip", "file2.rar", "file3.7z"], 
+    "output_folder",
+    progress_callback=progress_callback
+)
+
+# File validation
+if FileValidator.is_archive("file.zip"):
+    print("File is a supported archive")
+
+if FileValidator.is_empty("file.txt"):
+    print("File is empty")
+
+# Direct archive handling
+ArchiveHandler.extract("archive.7z", "output")
+
+# Add custom archive format
+ArchiveHandler.add_format('.custom', lambda f, d: custom_extract(f, d))
+
+# File operations with conflict resolution
+FileManager.move_file("source.txt", "destination.txt")  # Auto-renames if exists
+FileManager.delete_folder("temp_folder")
+FileManager.move_files("folder_path")  # Flatten + normalize names
 ```
 
 ---
@@ -125,36 +197,27 @@ FileManager.batch_extract(["a.zip", "b.rar"], output_folder)
 ```python
 from goblintools import TextCleaner
 
+# Default Portuguese stopwords
 cleaner = TextCleaner()
-raw_text = "Isso é um Teste com Acentos. E algumas palavras, como 'e', 'a', 'o', são stopwords."
+raw_text = "Isso é um Teste com Acentos!"
 
-print(f"Original text: {raw_text}")
+# Basic cleaning (remove accents)
+clean = cleaner.clean_text(raw_text)
+# Output: "Isso e um Teste com Acentos!"
 
-clean_text_basic = cleaner.clean_text(raw_text)
-print(f"Basic cleaning: {clean_text_basic}")
+# Full cleaning (lowercase + remove stopwords)
+clean = cleaner.clean_text(raw_text, lowercase=True, remove_stopwords=True)
+# Output: "teste acentos"
 
-clean_text_full = cleaner.clean_text(raw_text, lowercase=True, remove_stopwords=True)
-print(f"Full cleaning: {clean_text_full}")
+# Custom stopwords
+custom_cleaner = TextCleaner(custom_stopwords=['custom', 'words'])
+clean = custom_cleaner.remove_stopwords("custom text with words")
+# Output: "text with"
 ```
 
 ---
 
-### OCR with AWS Textract
 
-```python
-from goblintools import TextExtractor
-
-extractor = TextExtractor(
-    ocr_handler=True,
-    use_aws=True,
-    aws_access_key="your-aws-access-key-here",
-    aws_secret_key="your-aws-secret-key-here",
-    aws_region="us-east-1"
-)
-
-# Example:
-text = extractor.extract_from_file("aws_scanned_document.pdf")
-```
 
 ---
 
@@ -174,51 +237,49 @@ text = extractor.extract_from_file("aws_scanned_document.pdf")
 
 ---
 
-## File Management Utilities
+## API Reference
 
-### Move a File
+### TextExtractor
+- `__init__(ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config=None)` - Initialize extractor with OCR options or config
+- `extract_from_file(file_path)` - Extract text from single file
+- `extract_from_folder(folder_path)` - Extract text from all files in folder (respects max_file_size)
+- `pdf_needs_ocr(pdf_path)` - Check if PDF requires OCR processing
+- `add_parser(extension, parser_func)` - Add custom parser for file extension
+- `validate_installation()` - Check if dependencies are properly installed
 
-```python
-from goblintools import FileManager
+### FileManager
+- `extract_files_recursive(archive_path, output_path)` - Extract archive recursively
+- `batch_extract(archive_list, output_path, progress_callback=None)` - Extract multiple archives with optional progress tracking
+- `move_file(source, destination)` - Move/rename file with conflict resolution and type safety
+- `delete_folder(folder_path)` - Delete folder and contents
+- `delete_if_empty(file_path)` - Delete file if empty
+- `move_files(folder_path)` - Flatten directory structure and normalize filenames
 
-source = "path/to/source.txt"
-destination = "path/to/destination.txt"
+### FileValidator
+- `is_empty(file_path)` - Check if file is empty
+- `is_archive(file_path)` - Check if file is a supported archive format
 
-FileManager.move_file(source, destination)
-```
+### ArchiveHandler
+- `extract(file_path, destination)` - Extract archive with collision avoidance
+- `add_format(extension, handler)` - Add support for new archive formats
 
-### Delete a Folder and Its Contents
+### TextCleaner
+- `__init__(custom_stopwords=None)` - Initialize with custom stopwords (defaults to Portuguese)
+- `clean_text(text, lowercase=False, remove_stopwords=False)` - Clean and normalize text
+- `remove_stopwords(text)` - Remove stopwords from text
 
-```python
-FileManager.delete_folder("temp_folder")
-```
+### OCRProcessor
+- `__init__(config)` - Initialize OCR processor with OCRConfig
+- `extract_text_from_pdf(pdf_path)` - Extract text from PDF using OCR
 
-### Delete a File if It's Empty
+### GoblinConfig
+- `__init__(max_file_size=104857600, ocr=None)` - Initialize configuration
+- `from_file(config_path)` - Load configuration from JSON file
+- `to_file(config_path)` - Save configuration to JSON file
+- `default()` - Create default configuration
 
-```python
-FileManager.delete_if_empty("empty_file.txt")
-```
-
-### Normalize and Move All Files in a Directory
-
-Moves all files to the root of the folder, renames to avoid conflicts, and removes empty subfolders.
-
-```python
-FileManager.move_files("path/to/root_folder")
-```
-
-
-## Text Extraction Utilities
-
-### Verify  if a PDF file needs OCR treatment
-
-```python
-from goblintools import TextExtractor
-
-extractor = TextExtractor()
-if extractor.pdf_needs_ocr("scanned_document.pdf")
-    print("Needs OCR!")
-```
+### OCRConfig
+- `__init__(use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', tesseract_lang='por')` - Initialize OCR configuration
 ---
 
 ## License

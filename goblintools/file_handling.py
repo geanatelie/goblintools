@@ -7,7 +7,7 @@ import logging
 import tempfile
 import rarfile
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Union
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -170,26 +170,37 @@ class FileManager:
         return False
 
     @staticmethod
-    def move_file(source: str, destination: str) -> bool:
+    def move_file(source: Union[str, Path], destination: Union[str, Path]) -> bool:
         """Move a single file with proper error handling."""
+        source_path = Path(source)
+        dest_path = Path(destination)
+        
         try:
-            if FileValidator.is_empty(source):
+            if not source_path.exists():
+                logger.error(f"Source file does not exist: {source_path}")
+                return False
+            
+            if FileValidator.is_empty(str(source_path)):
+                logger.info(f"Skipping empty file: {source_path}")
                 return False
 
             # Ensure destination directory exists
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Handle name conflicts
             counter = 1
-            base, ext = os.path.splitext(destination)
-            while os.path.exists(destination):
-                destination = f"{base}_{counter}{ext}"
+            original_dest = dest_path
+            while dest_path.exists():
+                dest_path = original_dest.parent / f"{original_dest.stem}_{counter}{original_dest.suffix}"
                 counter += 1
 
-            shutil.move(source, destination)
+            shutil.move(str(source_path), str(dest_path))
             return True
+        except PermissionError:
+            logger.error(f"Permission denied moving {source_path} to {dest_path}")
+            return False
         except Exception as e:
-            logger.error(f"Error moving {source} to {destination}: {e}")
+            logger.error(f"Error moving {source_path} to {dest_path}: {e}")
             return False
 
     @classmethod
@@ -239,11 +250,29 @@ class FileManager:
         return True
 
     @classmethod
-    def batch_extract(cls, file_paths: List[str], destination: str) -> List[bool]:
-        """Process multiple archives in parallel."""
-        with ThreadPoolExecutor() as executor:
-            results = list(executor.map(
-                lambda path: cls.extract_files_recursive(path, destination),
-                file_paths
-            ))
-        return results
+    def batch_extract(
+        cls, 
+        file_paths: List[str], 
+        destination: str,
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> List[bool]:
+        """Process multiple archives in parallel with optional progress tracking."""
+        if progress_callback:
+            # Sequential processing with progress tracking
+            results = []
+            total = len(file_paths)
+            
+            for i, path in enumerate(file_paths):
+                result = cls.extract_files_recursive(path, destination)
+                results.append(result)
+                progress_callback(i + 1, total)
+            
+            return results
+        else:
+            # Parallel processing
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(
+                    lambda path: cls.extract_files_recursive(path, destination),
+                    file_paths
+                ))
+            return results

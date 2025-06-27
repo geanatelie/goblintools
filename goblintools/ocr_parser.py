@@ -8,24 +8,33 @@ from pdf2image import convert_from_path
 import pytesseract
 import multiprocessing
 from scipy.ndimage import rotate
+from goblintools.config import OCRConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class OCRProcessor:
-    def __init__(self, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1'):
-        self.use_aws = use_aws
-        self.textract_client = None
-
-        if self.use_aws:
-            if not aws_access_key or not aws_secret_key:
+    def __init__(self, config: OCRConfig):
+        self.config = config
+        self._textract_client = None
+    
+    @property
+    def textract_client(self):
+        """Lazy-loaded AWS Textract client"""
+        if self._textract_client is None and self.config.use_aws:
+            if not self.config.aws_access_key or not self.config.aws_secret_key:
                 raise ValueError("AWS credentials must be provided if use_aws is True.")
-            self.textract_client = boto3.client(
-                'textract',
-                region_name=aws_region,
-                aws_access_key_id=aws_access_key,
-                aws_secret_access_key=aws_secret_key
-            )
+            try:
+                self._textract_client = boto3.client(
+                    'textract',
+                    region_name=self.config.aws_region,
+                    aws_access_key_id=self.config.aws_access_key,
+                    aws_secret_access_key=self.config.aws_secret_key
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize AWS Textract client: {e}")
+                raise
+        return self._textract_client
 
     def _process_page_aws(self, image):
         _, img_encoded = cv2.imencode('.jpg', image)
@@ -58,7 +67,7 @@ class OCRProcessor:
         M = cv2.getRotationMatrix2D(center, best_angle, 1.0)
         corrected = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
-        return pytesseract.image_to_string(corrected, lang='por')
+        return pytesseract.image_to_string(corrected, lang=self.config.tesseract_lang)
 
     def extract_text_from_pdf(self, pdf_path):
         try:
@@ -67,7 +76,7 @@ class OCRProcessor:
             logger.exception(f"Error converting PDF to images: {e}")
             return ""
 
-        if self.use_aws:
+        if self.config.use_aws:
             extracted_texts = []
             for image in images:
                 text = self._process_page_aws(np.array(image))

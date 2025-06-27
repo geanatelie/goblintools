@@ -1,7 +1,7 @@
 import csv
 import logging
 import os
-from typing import Dict, Callable, Optional
+from typing import Dict, Callable, Optional, Union
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
@@ -16,7 +16,9 @@ from odf import text, teletype
 from odf.opendocument import load
 from odf.text import P
 import docx
+from functools import lru_cache
 from goblintools.ocr_parser import OCRProcessor
+from goblintools.config import GoblinConfig, OCRConfig
 
 # Document processing libraries (conditional imports)
 try:
@@ -31,20 +33,38 @@ logger = logging.getLogger(__name__)
 class TextExtractor:
     """Main class for handling text extraction from various file formats."""
     
-    def __init__(self, ocr_handler = False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1'):
+    def __init__(self, ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config: Optional[GoblinConfig] = None):
         """
         Initialize the text extractor.
         
         Args:
-            ocr_handler: Optional function to handle OCR for image-based PDFs
+            ocr_handler: Enable OCR for image-based PDFs
+            use_aws: Use AWS Textract for OCR
+            aws_access_key: AWS access key
+            aws_secret_key: AWS secret key
+            aws_region: AWS region
+            config: GoblinConfig object (overrides other parameters)
         """
+        self.config = config or GoblinConfig.default()
+        
+        # Override config with explicit parameters if provided
+        if any([use_aws, aws_access_key, aws_secret_key, aws_region != 'us-east-1']):
+            self.config.ocr = OCRConfig(use_aws, aws_access_key, aws_secret_key, aws_region)
+        
         if ocr_handler:
-            self.ocr_handler = OCRProcessor(use_aws, aws_access_key, aws_secret_key, aws_region)
+            self.ocr_handler = OCRProcessor(self.config.ocr)
         else:
             self.ocr_handler = None
 
-        self._parsers = self._initialize_parsers()
+        self._parsers = None  # Lazy initialization
 
+    @property
+    def parsers(self) -> Dict[str, Callable]:
+        """Lazy-loaded parsers dictionary"""
+        if self._parsers is None:
+            self._parsers = self._initialize_parsers()
+        return self._parsers
+    
     def _initialize_parsers(self) -> Dict[str, Callable]:
         """Initialize all available text extraction parsers."""
         return {
@@ -67,7 +87,7 @@ class TextExtractor:
 
     def add_parser(self, extension: str, parser_func: Callable) -> None:
         """Add or override a parser for a specific file extension."""
-        self._parsers[extension.lower()] = parser_func
+        self.parsers[extension.lower()] = parser_func
 
     def extract_from_file(self, file_path: str) -> str:
         """
@@ -84,7 +104,7 @@ class TextExtractor:
             return ""
 
         file_extension = Path(file_path).suffix.lower()
-        parser = self._parsers.get(file_extension)
+        parser = self.parsers.get(file_extension)
         
         if not parser:
             logger.warning(f"No parser available for file extension: {file_extension}")
@@ -110,28 +130,40 @@ class TextExtractor:
             logger.warning(f"Folder not found: {folder_path}")
             return ""
 
-        extracted_text = []
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                text = self.extract_from_file(file_path)
-                if text:
-                    extracted_text.append(text)
+        def text_generator():
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    # Skip files larger than max_file_size
+                    try:
+                        if os.path.getsize(file_path) > self.config.max_file_size:
+                            logger.warning(f"Skipping large file: {file_path}")
+                            continue
+                    except OSError:
+                        continue
+                    
+                    text = self.extract_from_file(file_path)
+                    if text:
+                        yield text
 
-        return ' '.join(extracted_text)
+        return ' '.join(text_generator())
     
     def pdf_needs_ocr(self, file_path: str) -> bool:
-        with open(file_path, 'rb') as f:
-            reader = PdfReader(f)
-            for page in reader.pages:
-                text = page.extract_text()
-                if text and not text.isspace():
-                    return False
-        return True
+        """Check if PDF needs OCR processing"""
+        try:
+            with open(file_path, 'rb') as f:
+                reader = PdfReader(f)
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text and not text.isspace():
+                        return False
+            return True
+        except Exception as e:
+            logger.error(f"Error checking PDF {file_path}: {e}")
+            return True
 
     def _resave_pdf(self, file_path: str) -> str:
-        from pypdf import PdfReader, PdfWriter
-
+        """Resave PDF to fix potential issues"""
         reader = PdfReader(file_path)
         writer = PdfWriter()
         for page in reader.pages:
@@ -143,16 +175,38 @@ class TextExtractor:
         
         return str(output_path)
 
+    def validate_installation(self) -> Dict[str, bool]:
+        """Check if all dependencies are properly installed"""
+        results = {}
+        
+        # Check Tesseract
+        try:
+            import pytesseract
+            pytesseract.get_tesseract_version()
+            results['tesseract'] = True
+        except:
+            results['tesseract'] = False
+        
+        # Check AWS credentials
+        if self.ocr_handler and self.config.ocr.use_aws:
+            try:
+                self.ocr_handler.textract_client.list_document_analysis_jobs
+                results['aws_textract'] = True
+            except:
+                results['aws_textract'] = False
+        
+        return results
+    
     # Individual parser methods
     def _extract_pdf(self, file_path: str) -> str:
         """Extract text from PDF files using PyPDF, with fallback to OCR if needed."""
         extracted_text = ''
         has_images = False
-
-        file_path = self._resave_pdf(file_path)
+        temp_file = None
 
         try:
-            reader = PdfReader(file_path)
+            temp_file = self._resave_pdf(file_path)
+            reader = PdfReader(temp_file)
 
             for i, page in enumerate(reader.pages):
                 try:
@@ -171,13 +225,20 @@ class TextExtractor:
                             for obj in xObject
                         )
                 except Exception as e:
-                    logger.warning(f"Error reading page {i} of {file_path}: {e}")
+                    logger.warning(f"Error reading page {i} of {temp_file}: {e}")
 
         except Exception as e:
             logger.error(f"Failed to open PDF {file_path}: {e}")
             return ''
+        finally:
+            # Clean up temporary file
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
 
-        # Fallback para OCR
+        # Fallback to OCR
         if not extracted_text.strip() and has_images:
             if self.ocr_handler:
                 logger.info(f"OCR required for file: {file_path}")

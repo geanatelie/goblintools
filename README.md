@@ -15,12 +15,14 @@ pip install goblintools
 
 - **Python**: 3.7 or newer
 - **Tesseract OCR**: Required for local OCR support ([Installation Guide](https://github.com/tesseract-ocr/tesseract))
+  - **Portuguese Language Pack**: Install `tesseract-ocr-por` for Portuguese text recognition
 - **AWS Credentials**: Required for AWS Textract cloud OCR
 
 ---
 
 ## System Dependencies
 
+### Archive Support
 For complete archive format support, install these system tools (required by `patoolib`):
 
 | OS | Command |
@@ -29,6 +31,15 @@ For complete archive format support, install these system tools (required by `pa
 | **Arch Linux** | `sudo pacman -S unrar p7zip` |
 | **macOS** | `brew install unrar p7zip` |
 
+### Tesseract OCR with Portuguese Support
+
+| OS | Command |
+|----|---------|
+| **Debian/Ubuntu** | `sudo apt install tesseract-ocr tesseract-ocr-por` |
+| **Arch Linux** | `sudo pacman -S tesseract tesseract-data-por` |
+| **macOS** | `brew install tesseract tesseract-lang` |
+| **Windows** | Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) and select Portuguese during installation |
+
 ---
 
 ## Key Features
@@ -36,7 +47,8 @@ For complete archive format support, install these system tools (required by `pa
 - 📄 **Broad File Support**: Extract text from 20+ document, spreadsheet, and presentation formats
 - 📦 **Archive Handling**: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and 30+ more formats
 - 🔍 **OCR Integration**: Local Tesseract or cloud AWS Textract support
-- 🧹 **Text Cleaning**: Accent removal, case normalization, stopword filtering (Portuguese support)
+- 🧹 **Text Cleaning**: Accent removal, case normalization, stopword filtering (Brazilian Portuguese support)
+- 🇧🇷 **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
 - ⚡ **Batch Processing**: Parallel archive extraction
 - 📁 **File Management**: Comprehensive file/directory operations
 
@@ -85,7 +97,7 @@ config = GoblinConfig(
         aws_access_key="your-key",
         aws_secret_key="your-secret",
         aws_region="us-west-2",
-        tesseract_lang="eng"  # English OCR
+        tesseract_lang="por"  # Portuguese OCR (default)
     )
 )
 
@@ -105,14 +117,21 @@ extractor = TextExtractor(ocr_handler=True, config=config)
 {
   "max_file_size": 52428800,
   "ocr": {
-    "use_aws": true,
-    "aws_access_key": "your-key",
-    "aws_secret_key": "your-secret",
-    "aws_region": "us-west-2",
-    "tesseract_lang": "eng"
+    "use_aws": false,
+    "aws_access_key": null,
+    "aws_secret_key": null,
+    "aws_region": "us-east-1",
+    "tesseract_lang": "por"
   }
 }
 ```
+
+**Supported Tesseract Languages:**
+- `"por"` - Portuguese (default)
+- `"eng"` - English
+- `"spa"` - Spanish
+- `"por+eng"` - Portuguese + English (multi-language)
+- See [Tesseract documentation](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) for more languages
 
 ### Advanced Features
 
@@ -213,11 +232,51 @@ clean = cleaner.clean_text(raw_text, lowercase=True, remove_stopwords=True)
 custom_cleaner = TextCleaner(custom_stopwords=['custom', 'words'])
 clean = custom_cleaner.remove_stopwords("custom text with words")
 # Output: "text with"
+
+# Portuguese text processing example
+portuguese_text = "Este é um documento em português com acentuação!"
+clean_pt = cleaner.clean_text(portuguese_text, lowercase=True, remove_stopwords=True)
+# Output: "documento portugues acentuacao"
 ```
 
 ---
 
+## Brazilian Portuguese Support
 
+GoblinTools is optimized for Brazilian Portuguese users:
+
+```python
+from goblintools import TextExtractor, TextCleaner, OCRConfig
+
+# Portuguese OCR configuration
+config = OCRConfig(
+    tesseract_lang="por",  # Portuguese language
+    use_aws=False  # Use local Tesseract
+)
+
+# Extract Portuguese documents
+extractor = TextExtractor(ocr_handler=True, config=config)
+text = extractor.extract_from_file("documento_brasileiro.pdf")
+
+# Clean Portuguese text (removes Portuguese stopwords)
+cleaner = TextCleaner()  # Uses Portuguese stopwords by default
+clean_text = cleaner.clean_text(
+    "Este é um texto em português com acentos!",
+    lowercase=True,
+    remove_stopwords=True
+)
+print(clean_text)  # Output: "texto portugues acentos"
+
+# Multi-language OCR (Portuguese + English)
+multi_config = OCRConfig(tesseract_lang="por+eng")
+extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
+```
+
+**Portuguese Features:**
+- Default Portuguese stopwords (400+ words)
+- Portuguese Tesseract OCR support
+- Accent removal with `unidecode`
+- Brazilian document format support
 
 ---
 
@@ -280,6 +339,7 @@ clean = custom_cleaner.remove_stopwords("custom text with words")
 
 ### OCRConfig
 - `__init__(use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', tesseract_lang='por')` - Initialize OCR configuration
+  - `tesseract_lang`: Language for Tesseract OCR (`'por'` for Portuguese, `'eng'` for English, `'por+eng'` for both)
 ---
 
 ## License

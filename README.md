@@ -51,6 +51,7 @@ For complete archive format support, install these system tools (required by `pa
 - 🇧🇷 **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
 - ⚡ **Batch Processing**: Parallel archive extraction
 - 📁 **File Management**: Comprehensive file/directory operations
+- 📋 **Metadata Extraction**: Extract text with structured metadata including file names and page information
 
 ---
 
@@ -165,6 +166,47 @@ ocr_config = OCRConfig(use_aws=True, aws_access_key="key", aws_secret_key="secre
 ocr = OCRProcessor(ocr_config)
 text = ocr.extract_text_from_pdf("scanned.pdf")
 ```
+
+---
+
+### Metadata Extraction
+
+```python
+# Extract text with metadata from single file
+result = extractor.extract_from_file("document.pdf", include_metadata=True)
+print(f"Text: {result['text'][:100]}...")
+print(f"Metadata:\n{result['metadata_markdown']}")
+
+# Extract text with metadata from folder
+result = extractor.extract_from_folder("/path/to/documents", include_metadata=True)
+print(f"Combined text: {len(result['text'])} characters")
+print(f"Structured metadata:\n{result['metadata_markdown']}")
+
+# Example output structure:
+# {
+#   "text": "Complete extracted text from all files...",
+#   "metadata_markdown": """
+# # Extração da Pasta: documents
+# 
+# ## document1.pdf
+# ### Página 1
+# Content from page 1...
+# ### Página 2  
+# Content from page 2...
+# 
+# ## document2.docx
+# ### Página 1
+# Content from docx file...
+#   """
+# }
+```
+
+**Metadata Features:**
+- **File-level organization**: Each document is clearly identified
+- **Page-by-page breakdown**: PDFs show individual page content
+- **Markdown format**: Structured, readable output with headers
+- **Combined text**: Full text extraction alongside metadata
+- **Hierarchical structure**: Folder → File → Page organization
 
 ---
 
@@ -300,11 +342,17 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 
 ### TextExtractor
 - `__init__(ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config=None)` - Initialize extractor with OCR options or config
-- `extract_from_file(file_path)` - Extract text from single file
-- `extract_from_folder(folder_path)` - Extract text from all files in folder (respects max_file_size)
+- `extract_from_file(file_path, include_metadata=False)` - Extract text from single file, optionally with metadata
+- `extract_from_folder(folder_path, include_metadata=False)` - Extract text from all files in folder, optionally with metadata
 - `pdf_needs_ocr(pdf_path)` - Check if PDF requires OCR processing
 - `add_parser(extension, parser_func)` - Add custom parser for file extension
 - `validate_installation()` - Check if dependencies are properly installed
+
+**Metadata Extraction:**
+- When `include_metadata=False` (default): Returns `str` with extracted text
+- When `include_metadata=True`: Returns `Dict` with:
+  - `"text"`: Complete extracted text from all files
+  - `"metadata_markdown"`: Structured markdown with file names and page information
 
 ### FileManager
 - `extract_files_recursive(archive_path, output_path)` - Extract archive recursively

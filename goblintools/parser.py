@@ -1,7 +1,7 @@
 import csv
 import logging
 import os
-from typing import Dict, Callable, Optional, Union
+from typing import Dict, Callable, Optional, Union, List
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
@@ -88,19 +88,38 @@ class TextExtractor:
     def add_parser(self, extension: str, parser_func: Callable) -> None:
         """Add or override a parser for a specific file extension."""
         self.parsers[extension.lower()] = parser_func
+    
+    def _extract_with_metadata(self, file_path: str, parser: Callable) -> Dict:
+        """Extract text with metadata structure."""
+        filename = Path(file_path).name
+        file_extension = Path(file_path).suffix.lower()
+        
+        if file_extension == '.pdf':
+            return self._extract_pdf_with_metadata(file_path)
+        else:
+            text = parser(file_path)
+            if text:
+                markdown = f"## {filename}\n### Página 1\n{text}\n"
+                return {"text": text, "metadata_markdown": markdown}
+            else:
+                return {"text": "", "metadata_markdown": f"## {filename}\n*Nenhum conteúdo extraído*\n"}
 
-    def extract_from_file(self, file_path: str) -> str:
+    def extract_from_file(self, file_path: str, include_metadata: bool = False) -> Union[str, Dict]:
         """
         Extract text from a single file.
         
         Args:
             file_path: Path to the file to extract text from
+            include_metadata: If True, return dict with text and metadata_markdown
             
         Returns:
-            Extracted text as a string
+            Extracted text as string or dict with text and metadata_markdown
         """
         if not os.path.exists(file_path):
             logger.warning(f"File not found: {file_path}")
+            if include_metadata:
+                filename = Path(file_path).name
+                return {"text": "", "metadata_markdown": f"## {filename}\n*Arquivo não encontrado*\n"}
             return ""
 
         file_extension = Path(file_path).suffix.lower()
@@ -108,33 +127,47 @@ class TextExtractor:
         
         if not parser:
             logger.warning(f"No parser available for file extension: {file_extension}")
+            if include_metadata:
+                filename = Path(file_path).name
+                return {"text": "", "metadata_markdown": f"## {filename}\n*Formato não suportado*\n"}
             return ""
 
         try:
-            return parser(file_path)
+            if include_metadata:
+                return self._extract_with_metadata(file_path, parser)
+            else:
+                return parser(file_path)
         except Exception as e:
             logger.error(f"Error extracting text from {file_path}: {e}")
+            if include_metadata:
+                filename = Path(file_path).name
+                return {"text": "", "metadata_markdown": f"## {filename}\n*Erro na extração: {e}*\n"}
             return ""
 
-    def extract_from_folder(self, folder_path: str) -> str:
+    def extract_from_folder(self, folder_path: str, include_metadata: bool = False) -> Union[str, Dict]:
         """
         Extract text from all supported files in a folder (recursively).
         
         Args:
             folder_path: Path to the folder to process
+            include_metadata: If True, return dict with combined text and metadata_markdown
             
         Returns:
-            Combined extracted text from all files
+            Combined extracted text or dict with text and metadata_markdown
         """
         if not os.path.exists(folder_path):
             logger.warning(f"Folder not found: {folder_path}")
+            if include_metadata:
+                return {"text": "", "metadata_markdown": f"# Pasta: {folder_path}\n*Pasta não encontrada*\n"}
             return ""
 
-        def text_generator():
+        if include_metadata:
+            all_texts = []
+            all_markdown = [f"# Extração da Pasta: {Path(folder_path).name}\n"]
+            
             for root, _, files in os.walk(folder_path):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    # Skip files larger than max_file_size
                     try:
                         if os.path.getsize(file_path) > self.config.max_file_size:
                             logger.warning(f"Skipping large file: {file_path}")
@@ -142,11 +175,31 @@ class TextExtractor:
                     except OSError:
                         continue
                     
-                    text = self.extract_from_file(file_path)
-                    if text:
-                        yield text
-
-        return ' '.join(text_generator())
+                    result = self.extract_from_file(file_path, include_metadata=True)
+                    if result and result.get("text"):
+                        all_texts.append(result["text"])
+                        all_markdown.append(result["metadata_markdown"])
+            
+            return {
+                "text": " ".join(all_texts),
+                "metadata_markdown": "\n".join(all_markdown)
+            }
+        else:
+            def text_generator():
+                for root, _, files in os.walk(folder_path):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        try:
+                            if os.path.getsize(file_path) > self.config.max_file_size:
+                                logger.warning(f"Skipping large file: {file_path}")
+                                continue
+                        except OSError:
+                            continue
+                        
+                        text = self.extract_from_file(file_path)
+                        if text:
+                            yield text
+            return ' '.join(text_generator())
     
     def pdf_needs_ocr(self, file_path: str) -> bool:
         """Check if PDF needs OCR processing"""
@@ -247,6 +300,56 @@ class TextExtractor:
                 logger.warning(f"The file {file_path} requires OCR but no handler was provided.")
 
         return extracted_text
+    
+    def _extract_pdf_with_metadata(self, file_path: str) -> Dict:
+        """Extract PDF text with page-by-page metadata."""
+        filename = Path(file_path).name
+        pages_data = []
+        temp_file = None
+
+        try:
+            temp_file = self._resave_pdf(file_path)
+            reader = PdfReader(temp_file)
+
+            for i, page in enumerate(reader.pages, 1):
+                try:
+                    page_text = page.extract_text() or ''
+                    # Include all pages, even if empty
+                    pages_data.append({"page": i, "content": page_text})
+                except Exception as e:
+                    logger.warning(f"Error reading page {i} of {temp_file}: {e}")
+                    # Add empty page on error
+                    pages_data.append({"page": i, "content": ""})
+
+        except Exception as e:
+            logger.error(f"Failed to open PDF {file_path}: {e}")
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+
+        # Fallback to OCR if no text found in any page
+        if not any(page["content"].strip() for page in pages_data) and self.ocr_handler:
+            logger.info(f"OCR required for file: {file_path}")
+            ocr_text = self.ocr_handler.extract_text_from_pdf(file_path)
+            if ocr_text:
+                pages_data = [{"page": 1, "content": ocr_text}]
+
+        # Generate combined text and markdown
+        all_text = " ".join(page["content"] for page in pages_data if page["content"].strip())
+        markdown_parts = [f"## {filename}"]
+        for page_data in pages_data:
+            if page_data["content"].strip():  # Only include non-empty pages in markdown
+                markdown_parts.append(f"### Página {page_data['page']}")
+                markdown_parts.append(page_data["content"])
+                markdown_parts.append("")  # Empty line between pages
+        
+        return {
+            "text": all_text,
+            "metadata_markdown": "\n".join(markdown_parts)
+        }
 
     def _extract_docx(self, file_path: str) -> str:
         """Extract text from DOCX files."""

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "goblintools"
-version = "0.2.0"
+version = "0.4.0"
 description = "Toolkit for archive extraction, OCR parsing, and file text extraction"
 authors = [{ name="Gean Matos", email="gean@webgoal.com.br" }]
 readme = "README.md"
@@ -31,7 +31,7 @@ dependencies = [
     "pytesseract",
     "scipy",
     "pillow"
-    
+
 ]
 
 [project.urls]

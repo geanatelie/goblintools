@@ -80,11 +80,28 @@ class OCRProcessor:
             extracted_texts = []
             for image in images:
                 text = self._process_page_aws(np.array(image))
-                if text:
-                    extracted_texts.append(text)
+                extracted_texts.append(text if text else "")
             return ' '.join(extracted_texts).strip()
         else:
             with multiprocessing.Pool() as pool:
                 extracted_text = pool.map(self._process_page_local, images)
             return ' '.join(extracted_text).strip()
-        
+    
+    def extract_text_from_pdf_by_pages(self, pdf_path):
+        """Extract text from PDF returning a list of pages"""
+        try:
+            images = convert_from_path(pdf_path)
+        except Exception as e:
+            logger.exception(f"Error converting PDF to images: {e}")
+            return []
+
+        if self.config.use_aws:
+            extracted_texts = []
+            for image in images:
+                text = self._process_page_aws(np.array(image))
+                extracted_texts.append(text if text else "")
+            return extracted_texts
+        else:
+            with multiprocessing.Pool() as pool:
+                extracted_text = pool.map(self._process_page_local, images)
+            return [text if text else "" for text in extracted_text]

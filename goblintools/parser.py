@@ -99,10 +99,10 @@ class TextExtractor:
         else:
             text = parser(file_path)
             if text:
-                markdown = f"## {filename}\n### Página 1\n{text}\n"
-                return {"text": text, "metadata_markdown": markdown}
+                metadata = {filename: {1: text}}
+                return {"text": text, "metadata": metadata}
             else:
-                return {"text": "", "metadata_markdown": ""}
+                return {"text": "", "metadata": {}}
 
     def extract_from_file(self, file_path: str, include_metadata: bool = False) -> Union[str, Dict]:
         """
@@ -110,15 +110,15 @@ class TextExtractor:
 
         Args:
             file_path: Path to the file to extract text from
-            include_metadata: If True, return dict with text and metadata_markdown
+            include_metadata: If True, return dict with text and metadata
 
         Returns:
-            Extracted text as string or dict with text and metadata_markdown
+            Extracted text as string or dict with text and metadata
         """
         if not os.path.exists(file_path):
             logger.warning(f"File not found: {file_path}")
             if include_metadata:
-                return {"text": "", "metadata_markdown": ""}
+                return {"text": "", "metadata": {}}
             return ""
 
         file_extension = Path(file_path).suffix.lower()
@@ -127,7 +127,7 @@ class TextExtractor:
         if not parser:
             logger.warning(f"No parser available for file extension: {file_extension}")
             if include_metadata:
-                return {"text": "", "metadata_markdown": ""}
+                return {"text": "", "metadata": {}}
             return ""
 
         try:
@@ -138,7 +138,7 @@ class TextExtractor:
         except Exception as e:
             logger.error(f"Error extracting text from {file_path}: {e}")
             if include_metadata:
-                return {"text": "", "metadata_markdown": ""}
+                return {"text": "", "metadata": {}}
             return ""
 
     def extract_from_folder(self, folder_path: str, include_metadata: bool = False) -> Union[str, Dict]:
@@ -147,20 +147,20 @@ class TextExtractor:
 
         Args:
             folder_path: Path to the folder to process
-            include_metadata: If True, return dict with combined text and metadata_markdown
+            include_metadata: If True, return dict with combined text and metadata
 
         Returns:
-            Combined extracted text or dict with text and metadata_markdown
+            Combined extracted text or dict with text and metadata
         """
         if not os.path.exists(folder_path):
             logger.warning(f"Folder not found: {folder_path}")
             if include_metadata:
-                return {"text": "", "metadata_markdown": ""}
+                return {"text": "", "metadata": {}}
             return ""
 
         if include_metadata:
             all_texts = []
-            all_markdown = []
+            all_metadata = {}
 
             for root, _, files in os.walk(folder_path):
                 for file in files:
@@ -173,19 +173,16 @@ class TextExtractor:
                         continue
 
                     result = self.extract_from_file(file_path, include_metadata=True)
-                    if result and result.get("text") and result.get("metadata_markdown"):
+                    if result and result.get("text") and result.get("metadata"):
                         all_texts.append(result["text"])
-                        all_markdown.append(result["metadata_markdown"])
+                        all_metadata.update(result["metadata"])
 
             if not all_texts:
-                return {"text": "", "metadata_markdown": ""}
-            
-            # Add folder header only if we have content
-            folder_header = f"# Extração da Pasta: {Path(folder_path).name}\n"
+                return {"text": "", "metadata": {}}
             
             return {
                 "text": " ".join(all_texts),
-                "metadata_markdown": folder_header + "\n".join(all_markdown)
+                "metadata": all_metadata
             }
         else:
             def text_generator():
@@ -340,22 +337,21 @@ class TextExtractor:
             if ocr_pages:
                 pages_data = [{"page": i+1, "content": page_text} for i, page_text in enumerate(ocr_pages)]
 
-        # Generate combined text and markdown
+        # Generate combined text and metadata dictionary
         all_text = " ".join(page["content"] for page in pages_data if page["content"].strip())
         
         if not all_text.strip():
-            return {"text": "", "metadata_markdown": ""}
+            return {"text": "", "metadata": {}}
         
-        markdown_parts = [f"## {filename}"]
+        # Create metadata dictionary structure
+        metadata = {filename: {}}
         for page_data in pages_data:
-            if page_data["content"].strip():  # Only include non-empty pages in markdown
-                markdown_parts.append(f"### Página {page_data['page']}")
-                markdown_parts.append(page_data["content"])
-                markdown_parts.append("")  # Empty line between pages
+            if page_data["content"].strip():  # Only include non-empty pages
+                metadata[filename][page_data["page"]] = page_data["content"]
 
         return {
             "text": all_text,
-            "metadata_markdown": "\n".join(markdown_parts)
+            "metadata": metadata
         }
 
     def _extract_docx(self, file_path: str) -> str:

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="goblintools",
-    version="0.5.0",
+    version="0.6.0",
     packages=find_packages(),
     install_requires=[
         "patool",
@@ -20,7 +20,6 @@ setup(
         "openpyxl",
         "xlrd",
         "odfpy",
-        "textract",
         "unidecode",
         "pytesseract",
         "scipy",

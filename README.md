@@ -187,13 +187,13 @@ print(f"Structured metadata:\n{result['metadata_markdown']}")
 #   "text": "Complete extracted text from all files...",
 #   "metadata_markdown": """
 # # Extração da Pasta: documents
-# 
+#
 # ## document1.pdf
 # ### Página 1
 # Content from page 1...
-# ### Página 2  
+# ### Página 2
 # Content from page 2...
-# 
+#
 # ## document2.docx
 # ### Página 1
 # Content from docx file...
@@ -227,7 +227,7 @@ def progress_callback(current, total):
     print(f"Progress: {current}/{total} ({current/total*100:.1f}%)")
 
 results = FileManager.batch_extract(
-    ["file1.zip", "file2.rar", "file3.7z"], 
+    ["file1.zip", "file2.rar", "file3.7z"],
     "output_folder",
     progress_callback=progress_callback
 )
@@ -325,15 +325,15 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 ## Supported Formats
 
 ### Documents
-`.pdf`, `.doc`, `.docx`, `.odt`, `.rtf`, `.txt`, `.csv`, `.xml`, `.html`
+`.pdf`, `.docx`, `.odt`, `.rtf`, `.txt`, `.csv`, `.xml`, `.html`
 
-### Spreadsheets  
+### Spreadsheets
 `.xlsx`, `.xls`, `.ods`, `.dbf`
 
-### Presentations  
+### Presentations
 `.pptx`
 
-### Archives  
+### Archives
 `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.iso`, `.deb`, `.rpm`, `.jar`, `.war`, `.ear`, `.cbz`, `.cbr`, `.cb7`, `.tgz`, `.txz`, `.cbt`, `.udf`, `.ace`, `.cba`, `.arj`, `.cab`, `.chm`, `.cpio`, `.dms`, `.lha`, `.lzh`, `.lzma`, `.lzo`, `.xz`, `.zst`, `.zoo`, `.adf`, `.alz`, `.arc`, `.shn`, `.rz`, `.lrz`, `.a`, `.Z`
 
 ---

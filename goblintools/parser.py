@@ -20,13 +20,6 @@ from functools import lru_cache
 from goblintools.ocr_parser import OCRProcessor
 from goblintools.config import GoblinConfig, OCRConfig
 
-# Document processing libraries (conditional imports)
-try:
-    import textract
-
-except ImportError as e:
-    logging.warning(f"Optional dependency not found: {e}. Some file formats may not be supported.")
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -69,7 +62,6 @@ class TextExtractor:
         """Initialize all available text extraction parsers."""
         return {
             '.pdf': self._extract_pdf,
-            '.doc': self._extract_doc,
             '.docx': self._extract_docx,
             '.txt': self._extract_txt,
             '.pptx': self._extract_pptx,
@@ -179,7 +171,7 @@ class TextExtractor:
 
             if not all_texts:
                 return {"text": "", "metadata": {}}
-            
+
             return {
                 "text": " ".join(all_texts),
                 "metadata": all_metadata
@@ -339,10 +331,10 @@ class TextExtractor:
 
         # Generate combined text and metadata dictionary
         all_text = " ".join(page["content"] for page in pages_data if page["content"].strip())
-        
+
         if not all_text.strip():
             return {"text": "", "metadata": {}}
-        
+
         # Create metadata dictionary structure
         metadata = {filename: {}}
         for page_data in pages_data:
@@ -361,14 +353,6 @@ class TextExtractor:
             return ' '.join(para.text for para in doc.paragraphs if para.text)
         except Exception as e:
             logger.error(f"Error processing DOCX file {file_path}: {e}")
-            return ""
-
-    def _extract_doc(self, file_path: str) -> str:
-        """Extract text from legacy DOC files."""
-        try:
-            return textract.process(file_path).decode('utf-8')
-        except Exception as e:
-            logger.error(f"Error processing DOC file {file_path}: {e}")
             return ""
 
     def _extract_txt(self, file_path: str) -> str:

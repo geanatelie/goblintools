@@ -51,7 +51,7 @@ For complete archive format support, install these system tools (required by `pa
 - 🇧🇷 **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
 - ⚡ **Batch Processing**: Parallel archive extraction
 - 📁 **File Management**: Comprehensive file/directory operations
-- 📋 **Metadata Extraction**: Extract text with structured metadata including file names and page information
+- 📋 **File Path Tagging**: Automatically includes file path metadata in extracted text
 
 ---
 
@@ -65,6 +65,10 @@ from goblintools import TextExtractor
 extractor = TextExtractor()
 text = extractor.extract_from_file("document.pdf")
 print(text[:200] + "..." if text else "No text extracted")
+
+# Output includes file path tag:
+# file_path_pwd:"document.pdf"
+# [extracted text content...]
 ```
 
 ### OCR-Enabled Extraction
@@ -73,6 +77,7 @@ print(text[:200] + "..." if text else "No text extracted")
 # Local OCR with Tesseract
 extractor = TextExtractor(ocr_handler=True)
 text = extractor.extract_from_file("scanned_document.pdf")
+# Output: file_path_pwd:"scanned_document.pdf" [OCR extracted text]
 
 # AWS Textract OCR
 extractor = TextExtractor(
@@ -83,6 +88,7 @@ extractor = TextExtractor(
     aws_region="us-east-1"
 )
 text = extractor.extract_from_file("document.pdf")
+# Output: file_path_pwd:"document.pdf" [AWS Textract extracted text]
 ```
 
 ### Configuration Management
@@ -138,7 +144,9 @@ extractor = TextExtractor(ocr_handler=True, config=config)
 
 ```python
 # Extract from entire folder (respects max_file_size limit)
+# Each file's text is prefixed with file_path_pwd tag
 text = extractor.extract_from_folder("/path/to/documents")
+# Output: file_path_pwd:"/path/to/documents/file1.pdf" [text] file_path_pwd:"/path/to/documents/file2.docx" [text] ...
 
 # Check if PDF needs OCR
 if extractor.pdf_needs_ocr("document.pdf"):
@@ -157,6 +165,7 @@ def custom_parser(file_path):
 
 extractor.add_parser('.custom', custom_parser)
 text = extractor.extract_from_file("file.custom")
+# Output: file_path_pwd:"file.custom" extracted text
 
 # Direct OCR processing with config
 from goblintools.ocr_parser import OCRProcessor
@@ -169,44 +178,31 @@ text = ocr.extract_text_from_pdf("scanned.pdf")
 
 ---
 
-### Metadata Extraction
+### File Path Tagging
+
+All extracted text automatically includes the file path as metadata using the `file_path_pwd` tag:
 
 ```python
-# Extract text with metadata from single file
-result = extractor.extract_from_file("document.pdf", include_metadata=True)
-print(f"Text: {result['text'][:100]}...")
-print(f"Metadata:\n{result['metadata_markdown']}")
+# Single file extraction
+text = extractor.extract_from_file("document.pdf")
+# Output format:
+# file_path_pwd:"document.pdf"
+# [extracted text content]
 
-# Extract text with metadata from folder
-result = extractor.extract_from_folder("/path/to/documents", include_metadata=True)
-print(f"Combined text: {len(result['text'])} characters")
-print(f"Structured metadata:\n{result['metadata_markdown']}")
+# Folder extraction
+text = extractor.extract_from_folder("/path/to/documents")
+# Output format:
+# file_path_pwd:"/path/to/documents/file1.pdf" [text] file_path_pwd:"/path/to/documents/file2.docx" [text] ...
 
-# Example output structure:
-# {
-#   "text": "Complete extracted text from all files...",
-#   "metadata_markdown": """
-# # Extração da Pasta: documents
-#
-# ## document1.pdf
-# ### Página 1
-# Content from page 1...
-# ### Página 2
-# Content from page 2...
-#
-# ## document2.docx
-# ### Página 1
-# Content from docx file...
-#   """
-# }
+# Example output:
+# file_path_pwd:"/docs/report.pdf" This is the content of the PDF file. file_path_pwd:"/docs/data.xlsx" Spreadsheet data here.
 ```
 
-**Metadata Features:**
-- **File-level organization**: Each document is clearly identified
-- **Page-by-page breakdown**: PDFs show individual page content
-- **Markdown format**: Structured, readable output with headers
-- **Combined text**: Full text extraction alongside metadata
-- **Hierarchical structure**: Folder → File → Page organization
+**File Path Tagging Features:**
+- **Automatic tagging**: Every extracted text includes the source file path
+- **Consistent format**: `file_path_pwd:"path/to/file"` prefix for easy parsing
+- **String output**: Simple string format, easy to process and search
+- **Source tracking**: Always know which file the text came from
 
 ---
 
@@ -342,17 +338,16 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 
 ### TextExtractor
 - `__init__(ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config=None)` - Initialize extractor with OCR options or config
-- `extract_from_file(file_path, include_metadata=False)` - Extract text from single file, optionally with metadata
-- `extract_from_folder(folder_path, include_metadata=False)` - Extract text from all files in folder, optionally with metadata
+- `extract_from_file(file_path)` - Extract text from single file. Returns `str` with `file_path_pwd:"path"` tag prefix
+- `extract_from_folder(folder_path)` - Extract text from all files in folder (recursively). Returns `str` with `file_path_pwd` tags for each file
 - `pdf_needs_ocr(pdf_path)` - Check if PDF requires OCR processing
 - `add_parser(extension, parser_func)` - Add custom parser for file extension
 - `validate_installation()` - Check if dependencies are properly installed
 
-**Metadata Extraction:**
-- When `include_metadata=False` (default): Returns `str` with extracted text
-- When `include_metadata=True`: Returns `Dict` with:
-  - `"text"`: Complete extracted text from all files
-  - `"metadata_markdown"`: Structured markdown with file names and page information
+**Output Format:**
+- Always returns `str` (string) with extracted text
+- Each file's text is prefixed with `file_path_pwd:"file/path"` tag
+- Multiple files are concatenated with spaces between them
 
 ### FileManager
 - `extract_files_recursive(archive_path, output_path)` - Extract archive recursively

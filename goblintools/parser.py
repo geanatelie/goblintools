@@ -1,7 +1,7 @@
 import csv
 import logging
 import os
-from typing import Dict, Callable, Optional, Union, List
+from typing import Dict, Callable, Optional
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
@@ -16,7 +16,6 @@ from odf import text, teletype
 from odf.opendocument import load
 from odf.text import P
 import docx
-from functools import lru_cache
 from goblintools.ocr_parser import OCRProcessor
 from goblintools.config import GoblinConfig, OCRConfig
 
@@ -81,36 +80,18 @@ class TextExtractor:
         """Add or override a parser for a specific file extension."""
         self.parsers[extension.lower()] = parser_func
 
-    def _extract_with_metadata(self, file_path: str, parser: Callable) -> Dict:
-        """Extract text with metadata structure."""
-        filename = Path(file_path).name
-        file_extension = Path(file_path).suffix.lower()
-
-        if file_extension == '.pdf':
-            return self._extract_pdf_with_metadata(file_path)
-        else:
-            text = parser(file_path)
-            if text:
-                metadata = {filename: {1: text}}
-                return {"text": text, "metadata": metadata}
-            else:
-                return {"text": "", "metadata": {}}
-
-    def extract_from_file(self, file_path: str, include_metadata: bool = False) -> Union[str, Dict]:
+    def extract_from_file(self, file_path: str) -> str:
         """
         Extract text from a single file.
 
         Args:
             file_path: Path to the file to extract text from
-            include_metadata: If True, return dict with text and metadata
 
         Returns:
-            Extracted text as string or dict with text and metadata
+            Extracted text as string with file_path_pwd tag at the beginning
         """
         if not os.path.exists(file_path):
             logger.warning(f"File not found: {file_path}")
-            if include_metadata:
-                return {"text": "", "metadata": {}}
             return ""
 
         file_extension = Path(file_path).suffix.lower()
@@ -118,80 +99,48 @@ class TextExtractor:
 
         if not parser:
             logger.warning(f"No parser available for file extension: {file_extension}")
-            if include_metadata:
-                return {"text": "", "metadata": {}}
             return ""
 
         try:
-            if include_metadata:
-                return self._extract_with_metadata(file_path, parser)
-            else:
-                return parser(file_path)
+            extracted_text = parser(file_path)
+            if not extracted_text:
+                return ""
+            return f'file_path_pwd:"{file_path}"\n{extracted_text}'
+
         except Exception as e:
             logger.error(f"Error extracting text from {file_path}: {e}")
-            if include_metadata:
-                return {"text": "", "metadata": {}}
             return ""
 
-    def extract_from_folder(self, folder_path: str, include_metadata: bool = False) -> Union[str, Dict]:
+    def extract_from_folder(self, folder_path: str) -> str:
         """
         Extract text from all supported files in a folder (recursively).
 
         Args:
             folder_path: Path to the folder to process
-            include_metadata: If True, return dict with combined text and metadata
 
         Returns:
-            Combined extracted text or dict with text and metadata
+            Combined extracted text with file_path_pwd tags for each file
         """
         if not os.path.exists(folder_path):
             logger.warning(f"Folder not found: {folder_path}")
-            if include_metadata:
-                return {"text": "", "metadata": {}}
             return ""
 
-        if include_metadata:
-            all_texts = []
-            all_metadata = {}
-
-            for root, _, files in os.walk(folder_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    try:
-                        if os.path.getsize(file_path) > self.config.max_file_size:
-                            logger.warning(f"Skipping large file: {file_path}")
-                            continue
-                    except OSError:
+        all_texts = []
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                try:
+                    if os.path.getsize(file_path) > self.config.max_file_size:
+                        logger.warning(f"Skipping large file: {file_path}")
                         continue
+                except OSError:
+                    continue
 
-                    result = self.extract_from_file(file_path, include_metadata=True)
-                    if result and result.get("text") and result.get("metadata"):
-                        all_texts.append(result["text"])
-                        all_metadata.update(result["metadata"])
+                text = self.extract_from_file(file_path)
+                if text:
+                    all_texts.append(text)
 
-            if not all_texts:
-                return {"text": "", "metadata": {}}
-
-            return {
-                "text": " ".join(all_texts),
-                "metadata": all_metadata
-            }
-        else:
-            def text_generator():
-                for root, _, files in os.walk(folder_path):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        try:
-                            if os.path.getsize(file_path) > self.config.max_file_size:
-                                logger.warning(f"Skipping large file: {file_path}")
-                                continue
-                        except OSError:
-                            continue
-
-                        text = self.extract_from_file(file_path)
-                        if text:
-                            yield text
-            return ' '.join(text_generator())
+        return '\n\n'.join(all_texts)
 
     def pdf_needs_ocr(self, file_path: str) -> bool:
         """Check if PDF needs OCR processing"""
@@ -292,59 +241,6 @@ class TextExtractor:
                 logger.warning(f"The file {file_path} requires OCR but no handler was provided.")
 
         return extracted_text
-
-    def _extract_pdf_with_metadata(self, file_path: str) -> Dict:
-        """Extract PDF text with page-by-page metadata."""
-        filename = Path(file_path).name
-        pages_data = []
-        temp_file = None
-
-        try:
-            temp_file = self._resave_pdf(file_path)
-            reader = PdfReader(temp_file)
-
-            for i, page in enumerate(reader.pages, 1):
-                try:
-                    page_text = page.extract_text() or ''
-                    # Include all pages, even if empty
-                    pages_data.append({"page": i, "content": page_text})
-                except Exception as e:
-                    logger.warning(f"Error reading page {i} of {temp_file}: {e}")
-                    # Add empty page on error
-                    pages_data.append({"page": i, "content": ""})
-
-        except Exception as e:
-            logger.error(f"Failed to open PDF {file_path}: {e}")
-        finally:
-            if temp_file and os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except:
-                    pass
-
-        # Fallback to OCR if no text found in any page
-        if not any(page["content"].strip() for page in pages_data) and self.ocr_handler:
-            logger.info(f"OCR required for file: {file_path}")
-            ocr_pages = self.ocr_handler.extract_text_from_pdf_by_pages(file_path)
-            if ocr_pages:
-                pages_data = [{"page": i+1, "content": page_text} for i, page_text in enumerate(ocr_pages)]
-
-        # Generate combined text and metadata dictionary
-        all_text = " ".join(page["content"] for page in pages_data if page["content"].strip())
-
-        if not all_text.strip():
-            return {"text": "", "metadata": {}}
-
-        # Create metadata dictionary structure
-        metadata = {filename: {}}
-        for page_data in pages_data:
-            if page_data["content"].strip():  # Only include non-empty pages
-                metadata[filename][page_data["page"]] = page_data["content"]
-
-        return {
-            "text": all_text,
-            "metadata": metadata
-        }
 
     def _extract_docx(self, file_path: str) -> str:
         """Extract text from DOCX files."""

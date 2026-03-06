@@ -47,6 +47,72 @@ def test_file_validator_is_archive_false():
         os.unlink(path)
 
 
+def test_is_zip_by_magic(temp_dir):
+    """Test is_zip_by_magic for zip, pdf, txt files."""
+    zip_path = os.path.join(temp_dir, "test.zip")
+    with zipfile.ZipFile(zip_path, 'w') as zf:
+        zf.writestr("x.txt", "content")
+    assert FileValidator.is_zip_by_magic(zip_path) is True
+
+    pdf_path = os.path.join(temp_dir, "test.pdf")
+    with open(pdf_path, 'wb') as f:
+        f.write(b'%PDF-1.4\ncontent')
+    assert FileValidator.is_zip_by_magic(pdf_path) is False
+
+    txt_path = os.path.join(temp_dir, "test.txt")
+    with open(txt_path, 'w') as f:
+        f.write("plain text")
+    assert FileValidator.is_zip_by_magic(txt_path) is False
+
+
+def test_detect_extension_from_magic(temp_dir):
+    """Test detect_extension_from_magic returns .pdf for PDF, None for others."""
+    pdf_path = os.path.join(temp_dir, "test.pdf")
+    with open(pdf_path, 'wb') as f:
+        f.write(b'%PDF-1.4\ncontent')
+    assert FileValidator.detect_extension_from_magic(pdf_path) == '.pdf'
+
+    zip_path = os.path.join(temp_dir, "test.zip")
+    with zipfile.ZipFile(zip_path, 'w') as zf:
+        zf.writestr("x.txt", "content")
+    assert FileValidator.detect_extension_from_magic(zip_path) is None
+
+    txt_path = os.path.join(temp_dir, "test.txt")
+    with open(txt_path, 'w') as f:
+        f.write("plain text")
+    assert FileValidator.detect_extension_from_magic(txt_path) is None
+
+
+def test_extract_files_recursive_pdf_named_as_zip(temp_dir):
+    """Case B fallback: .zip file with PDF content."""
+    zip_path = os.path.join(temp_dir, "arquivo.zip")
+    with open(zip_path, 'wb') as f:
+        f.write(b'%PDF-1.4\nfake pdf content')
+    dest = os.path.join(temp_dir, "out")
+    os.makedirs(dest, exist_ok=True)
+    result = FileManager.extract_files_recursive(zip_path, dest)
+    assert result is True
+    # Should have copied as .pdf
+    pdf_files = list(Path(dest).glob("*.pdf"))
+    assert len(pdf_files) == 1
+    assert pdf_files[0].name == "arquivo.pdf"
+
+
+def test_extract_files_recursive_zip_named_as_pdf(temp_dir):
+    """Case A fallback: .pdf file with ZIP content."""
+    pdf_path = os.path.join(temp_dir, "edital.pdf")
+    with zipfile.ZipFile(pdf_path, 'w') as zf:
+        zf.writestr("inner.txt", "hello from zip")
+    dest = os.path.join(temp_dir, "out")
+    os.makedirs(dest, exist_ok=True)
+    result = FileManager.extract_files_recursive(pdf_path, dest)
+    assert result is True
+    inner = os.path.join(dest, "inner.txt")
+    assert os.path.exists(inner)
+    with open(inner) as f:
+        assert f.read() == "hello from zip"
+
+
 def test_archive_handler_extract_zip(temp_dir):
     """Test ArchiveHandler.extract for zip file (default: remove source)."""
     zip_path = os.path.join(temp_dir, "test.zip")

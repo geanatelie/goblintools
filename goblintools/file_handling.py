@@ -39,6 +39,28 @@ class FileValidator:
         """Check if file is a document format that can be parsed directly (no extraction)."""
         return Path(file_path).suffix.lower() in cls.PARSEABLE_EXTENSIONS
 
+    @staticmethod
+    def is_zip_by_magic(file_path: str) -> bool:
+        """True if file starts with ZIP signature (PK..). Used for Case A fallback."""
+        try:
+            with open(file_path, 'rb') as f:
+                return f.read(4).startswith(b'PK\x03\x04')
+        except (OSError, IOError):
+            return False
+
+    @staticmethod
+    def detect_extension_from_magic(file_path: str) -> Optional[str]:
+        """Detect actual file type from magic bytes. Used for Case B fallback."""
+        try:
+            with open(file_path, 'rb') as f:
+                header = f.read(8)
+            if header.startswith(b'%PDF'):
+                return '.pdf'
+            return None
+        except (OSError, IOError):
+            return None
+
+
 class ArchiveHandler:
     _SUPPORTED_FORMATS: Dict[str, Callable] = {
         # ZIP formats
@@ -153,12 +175,35 @@ class ArchiveHandler:
             return True
         except Exception as e:
             logger.exception(f"Error extracting {file_path}: {e}")
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    pass
             return False
+
+    @classmethod
+    def extract_zip(cls, file_path: str, destination: str, remove_source: bool = True) -> bool:
+        """Extract file as ZIP using zipfile, regardless of extension. Used for Case A fallback."""
+        if FileValidator.is_empty(file_path):
+            return False
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zipfile.ZipFile(file_path).extractall(tmpdir)
+                for root, _, files in os.walk(tmpdir):
+                    for name in files:
+                        src_file = os.path.join(root, name)
+                        rel_path = os.path.relpath(src_file, tmpdir)
+                        dest_file = os.path.join(destination, rel_path)
+                        base, ext = os.path.splitext(dest_file)
+                        counter = 1
+                        while os.path.exists(dest_file):
+                            dest_file = f"{base}_{counter}{ext}"
+                            counter += 1
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.move(src_file, dest_file)
+            if remove_source:
+                os.remove(file_path)
+            return True
+        except Exception as e:
+            logger.exception(f"Error extracting ZIP {file_path}: {e}")
+            return False
+
 
 class FileManager:
     @staticmethod
@@ -266,17 +311,42 @@ class FileManager:
             return False
 
         if FileValidator.is_archive(file_path):
-            if not ArchiveHandler.extract(file_path, destination):
-                return False
-            # Process extracted files for nested archives
-            for root, _, files in os.walk(destination):
-                for file in files:
-                    source = os.path.join(root, file)
-                    if FileValidator.is_archive(source):
-                        cls.extract_files_recursive(source, root)
-            return True
+            if ArchiveHandler.extract(file_path, destination):
+                # Process extracted files for nested archives
+                for root, _, files in os.walk(destination):
+                    for file in files:
+                        source = os.path.join(root, file)
+                        if FileValidator.is_archive(source):
+                            cls.extract_files_recursive(source, root)
+                return True
+            # Case B fallback: extraction failed (e.g. .zip that is PDF)
+            actual_ext = FileValidator.detect_extension_from_magic(file_path)
+            if actual_ext and actual_ext in FileValidator.PARSEABLE_EXTENSIONS:
+                os.makedirs(destination, exist_ok=True)
+                stem = Path(file_path).stem
+                dest_file = os.path.join(destination, f"{stem}{actual_ext}")
+                base, ext = os.path.splitext(dest_file)
+                counter = 1
+                while os.path.exists(dest_file):
+                    dest_file = f"{base}_{counter}{ext}"
+                    counter += 1
+                shutil.copy2(file_path, dest_file)
+                logger.info(f"Treating misnamed file as {actual_ext}: {file_path}")
+                return True
+            return False
 
         if FileValidator.is_parseable_document(file_path):
+            # Case A fallback: .pdf (or other doc ext) that is actually ZIP
+            if FileValidator.is_zip_by_magic(file_path):
+                if ArchiveHandler.extract_zip(file_path, destination):
+                    for root, _, files in os.walk(destination):
+                        for file in files:
+                            source = os.path.join(root, file)
+                            if FileValidator.is_archive(source):
+                                cls.extract_files_recursive(source, root)
+                    logger.info(f"Treating misnamed file as ZIP: {file_path}")
+                    return True
+            # Normal path: copy document
             os.makedirs(destination, exist_ok=True)
             dest_file = os.path.join(destination, os.path.basename(file_path))
             base, ext = os.path.splitext(dest_file)
@@ -286,6 +356,23 @@ class FileManager:
                 counter += 1
             shutil.copy2(file_path, dest_file)
             return True
+
+        # Case B fallback when is_archive is False (e.g. patool detects PDF in .zip)
+        ext = Path(file_path).suffix.lower()
+        if ext in ArchiveHandler._SUPPORTED_FORMATS:
+            actual_ext = FileValidator.detect_extension_from_magic(file_path)
+            if actual_ext and actual_ext in FileValidator.PARSEABLE_EXTENSIONS:
+                os.makedirs(destination, exist_ok=True)
+                stem = Path(file_path).stem
+                dest_file = os.path.join(destination, f"{stem}{actual_ext}")
+                base, ext_suffix = os.path.splitext(dest_file)
+                counter = 1
+                while os.path.exists(dest_file):
+                    dest_file = f"{base}_{counter}{ext_suffix}"
+                    counter += 1
+                shutil.copy2(file_path, dest_file)
+                logger.info(f"Treating misnamed file as {actual_ext}: {file_path}")
+                return True
 
         return False
 

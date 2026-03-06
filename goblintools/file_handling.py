@@ -173,6 +173,10 @@ class ArchiveHandler:
         try:
             _do_extract()
             return True
+        except (zipfile.BadZipFile, rarfile.BadRarFile) as e:
+            # Expected when file is misnamed (e.g. .zip that is PDF); fallback will handle
+            logger.debug(f"Format mismatch for {file_path}: {e}")
+            return False
         except Exception as e:
             logger.exception(f"Error extracting {file_path}: {e}")
             return False
@@ -286,10 +290,16 @@ class FileManager:
                 if cls.delete_if_empty(source_path):
                     continue
 
-                # Normalize filename
+                # Use relative path as base to avoid _1 when same-name files exist in
+                # different folders (e.g. edital/edital.pdf vs subfolder/edital.pdf).
+                # Same stem + different extensions (edital.pdf, edital.docx) never collide.
+                rel_path = os.path.relpath(source_path, folder_path)
                 file_ext = Path(file).suffix.lower()
-                dest_path = os.path.join(folder_path, f"{Path(file).stem}{file_ext}")
-                
+                # Replace path separators with _ so edital/arquivo.pdf -> edital_arquivo.pdf
+                dest_stem = rel_path[:-len(file_ext)] if rel_path.lower().endswith(file_ext) else rel_path
+                dest_stem = dest_stem.replace(os.sep, "_").rstrip("_")
+                dest_path = os.path.join(folder_path, f"{dest_stem}{file_ext}")
+
                 cls.move_file(source_path, dest_path)
 
             # Remove empty directories

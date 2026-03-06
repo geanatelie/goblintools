@@ -79,12 +79,14 @@ class TextExtractor:
         """Add or override a parser for a specific file extension."""
         self.parsers[extension.lower()] = parser_func
 
-    def extract_from_file(self, file_path: str) -> str:
+    def extract_from_file(self, file_path: str, display_path: Optional[str] = None) -> str:
         """
         Extract text from a single file.
 
         Args:
             file_path: Path to the file to extract text from
+            display_path: Optional path for the file_path_pwd tag (e.g. relative path from inside archive).
+                          If None, uses file_path.
 
         Returns:
             Extracted text as string with file_path_pwd tag at the beginning
@@ -104,7 +106,8 @@ class TextExtractor:
             extracted_text = parser(file_path)
             if not extracted_text:
                 return ""
-            return f'file_path_pwd:"{file_path}"\n{extracted_text}'
+            path_for_tag = display_path if display_path is not None else file_path
+            return f'file_path_pwd:"{path_for_tag}"\n{extracted_text}'
 
         except Exception as e:
             logger.error(f"Error extracting text from {file_path}: {e}")
@@ -135,7 +138,8 @@ class TextExtractor:
                 except OSError:
                     continue
 
-                text = self.extract_from_file(file_path)
+                rel_path = os.path.relpath(file_path, folder_path)
+                text = self.extract_from_file(file_path, display_path=rel_path)
                 if text:
                     all_texts.append(text)
 

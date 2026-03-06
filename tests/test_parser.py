@@ -60,6 +60,20 @@ def test_add_parser():
         os.unlink(path)
 
 
+def test_extract_from_folder_uses_relative_path():
+    """Test that file_path_pwd uses path relative to folder (as inside zip)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        edital_dir = os.path.join(tmpdir, "edital")
+        os.makedirs(edital_dir)
+        arquivo_path = os.path.join(edital_dir, "arquivo.txt")
+        with open(arquivo_path, "w") as f:
+            f.write("content from edital/arquivo")
+        extractor = TextExtractor()
+        result = extractor.extract_from_folder(tmpdir)
+        assert 'file_path_pwd:"edital/arquivo.txt"' in result
+        assert "content from edital/arquivo" in result
+
+
 def test_validate_installation():
     """Test validate_installation returns dict with tesseract key."""
     extractor = TextExtractor()

@@ -6,4 +6,4 @@ from .ocr_parser import OCRProcessor
 
 __all__ = ['FileValidator', 'ArchiveHandler', 'FileManager', 
            'TextExtractor', 'TextCleaner', 'GoblinConfig', 'OCRConfig', 'OCRProcessor']
-__version__ = '0.6.0'
+__version__ = '0.6.3'

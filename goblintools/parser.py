@@ -19,7 +19,6 @@ import docx
 from goblintools.ocr_parser import OCRProcessor
 from goblintools.config import GoblinConfig, OCRConfig
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TextExtractor:
@@ -178,15 +177,15 @@ class TextExtractor:
             import pytesseract
             pytesseract.get_tesseract_version()
             results['tesseract'] = True
-        except:
+        except Exception:
             results['tesseract'] = False
 
-        # Check AWS credentials
-        if self.ocr_handler and self.config.ocr.use_aws:
+        # Check AWS credentials (use ocr_handler.use_aws in case we fell back to local)
+        if self.ocr_handler and self.ocr_handler.use_aws:
             try:
                 self.ocr_handler.textract_client.list_document_analysis_jobs
                 results['aws_textract'] = True
-            except:
+            except Exception:
                 results['aws_textract'] = False
 
         return results
@@ -229,7 +228,7 @@ class TextExtractor:
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                except:
+                except OSError:
                     pass
 
         # Fallback to OCR

@@ -1,5 +1,7 @@
 import os
 import logging
+from typing import List
+
 import boto3
 import cv2
 import numpy as np
@@ -9,19 +11,33 @@ import pytesseract
 import multiprocessing
 from scipy.ndimage import rotate
 from goblintools.config import OCRConfig
+from goblintools.retry import retry_with_backoff
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class OCRProcessor:
     def __init__(self, config: OCRConfig):
         self.config = config
         self._textract_client = None
-    
+        # Fall back to local OCR when use_aws=True but credentials are missing
+        if config.use_aws and (not config.aws_access_key or not config.aws_secret_key):
+            logger.warning(
+                "AWS credentials not found; falling back to local Tesseract OCR. "
+                "Provide aws_access_key and aws_secret_key in OCRConfig to use AWS Textract."
+            )
+            self._use_aws_effective = False
+        else:
+            self._use_aws_effective = config.use_aws
+
+    @property
+    def use_aws(self) -> bool:
+        """Whether AWS Textract is effectively being used (False when credentials missing)."""
+        return self._use_aws_effective
+
     @property
     def textract_client(self):
         """Lazy-loaded AWS Textract client"""
-        if self._textract_client is None and self.config.use_aws:
+        if self._textract_client is None and self._use_aws_effective:
             if not self.config.aws_access_key or not self.config.aws_secret_key:
                 raise ValueError("AWS credentials must be provided if use_aws is True.")
             try:
@@ -36,6 +52,7 @@ class OCRProcessor:
                 raise
         return self._textract_client
 
+    @retry_with_backoff(max_retries=3, exceptions=(Exception,))
     def _process_page_aws(self, image):
         _, img_encoded = cv2.imencode('.jpg', image)
         img_bytes = img_encoded.tobytes()
@@ -47,6 +64,7 @@ class OCRProcessor:
             logger.exception(f"Error during AWS Textract processing: {e}")
             return ""
 
+    @retry_with_backoff(max_retries=3, exceptions=(Exception,))
     def _process_page_local(self, image):
         image = np.array(image)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -69,25 +87,26 @@ class OCRProcessor:
 
         return pytesseract.image_to_string(corrected, lang=self.config.tesseract_lang)
 
-    def extract_text_from_pdf(self, pdf_path):
+    def extract_text_from_pdf(self, pdf_path: str) -> str:
         try:
             images = convert_from_path(pdf_path)
         except Exception as e:
             logger.exception(f"Error converting PDF to images: {e}")
             return ""
 
-        if self.config.use_aws:
+        if self._use_aws_effective:
             extracted_texts = []
             for image in images:
                 text = self._process_page_aws(np.array(image))
                 extracted_texts.append(text if text else "")
             return ' '.join(extracted_texts).strip()
         else:
-            with multiprocessing.Pool() as pool:
+            n_workers = min(multiprocessing.cpu_count(), len(images))
+            with multiprocessing.Pool(processes=n_workers) as pool:
                 extracted_text = pool.map(self._process_page_local, images)
             return ' '.join(extracted_text).strip()
     
-    def extract_text_from_pdf_by_pages(self, pdf_path):
+    def extract_text_from_pdf_by_pages(self, pdf_path: str) -> List[str]:
         """Extract text from PDF returning a list of pages"""
         try:
             images = convert_from_path(pdf_path)
@@ -95,13 +114,14 @@ class OCRProcessor:
             logger.exception(f"Error converting PDF to images: {e}")
             return []
 
-        if self.config.use_aws:
+        if self._use_aws_effective:
             extracted_texts = []
             for image in images:
                 text = self._process_page_aws(np.array(image))
                 extracted_texts.append(text if text else "")
             return extracted_texts
         else:
-            with multiprocessing.Pool() as pool:
+            n_workers = min(multiprocessing.cpu_count(), len(images))
+            with multiprocessing.Pool(processes=n_workers) as pool:
                 extracted_text = pool.map(self._process_page_local, images)
             return [text if text else "" for text in extracted_text]

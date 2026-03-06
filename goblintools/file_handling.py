@@ -9,10 +9,17 @@ import rarfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Callable, Union
 
-logging.basicConfig(level=logging.INFO)
+from goblintools.retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 class FileValidator:
+    # Extensions supported by TextExtractor (kept in sync with parser.py)
+    PARSEABLE_EXTENSIONS = frozenset({
+        '.pdf', '.docx', '.txt', '.pptx', '.html', '.odt', '.rtf',
+        '.csv', '.xml', '.xlsx', '.xlsm', '.xls', '.ods', '.dbf',
+    })
+
     @staticmethod
     def is_empty(file_path: str) -> bool:
         """Check if file is empty and optionally delete it."""
@@ -26,6 +33,11 @@ class FileValidator:
     def is_archive(file_path: str) -> bool:
         """Check if file is a supported archive format."""
         return patoolib.is_archive(file_path)
+
+    @classmethod
+    def is_parseable_document(cls, file_path: str) -> bool:
+        """Check if file is a document format that can be parsed directly (no extraction)."""
+        return Path(file_path).suffix.lower() in cls.PARSEABLE_EXTENSIONS
 
 class ArchiveHandler:
     _SUPPORTED_FORMATS: Dict[str, Callable] = {
@@ -97,14 +109,21 @@ class ArchiveHandler:
         cls._SUPPORTED_FORMATS[extension.lower()] = handler
 
     @classmethod
-    def extract(cls, file_path: str, destination: str) -> bool:
-        """Extract any supported archive format safely, avoiding file name collisions."""
+    def extract(cls, file_path: str, destination: str, remove_source: bool = True) -> bool:
+        """Extract any supported archive format safely, avoiding file name collisions.
+
+        Args:
+            file_path: Path to the archive file.
+            destination: Directory to extract contents into.
+            remove_source: If True (default), delete the archive after extraction.
+                           If False, keep the source archive.
+        """
         if FileValidator.is_empty(file_path):
             return False
 
-        try:
+        @retry_with_backoff(max_retries=3, exceptions=(OSError, RuntimeError))
+        def _do_extract():
             ext = Path(file_path).suffix.lower()
-
             with tempfile.TemporaryDirectory() as tmpdir:
                 if ext in cls._SUPPORTED_FORMATS:
                     cls._SUPPORTED_FORMATS[ext](file_path, tmpdir)
@@ -122,17 +141,23 @@ class ArchiveHandler:
                         while os.path.exists(dest_file):
                             dest_file = f"{base}_{counter}{ext}"
                             counter += 1
-                        
+
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.move(src_file, dest_file)
 
-            os.remove(file_path)
-            return True
+            if remove_source:
+                os.remove(file_path)
 
+        try:
+            _do_extract()
+            return True
         except Exception as e:
             logger.exception(f"Error extracting {file_path}: {e}")
             if os.path.exists(file_path):
-                os.remove(file_path)
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
             return False
 
 class FileManager:
@@ -231,23 +256,38 @@ class FileManager:
 
     @classmethod
     def extract_files_recursive(cls, file_path: str, destination: str) -> bool:
-        """Recursively extract nested archives."""
+        """Recursively extract nested archives, or copy parseable documents as-is.
+
+        If the file is an archive: extracts (and nested archives) to destination.
+        If the file is a parseable document (pdf, docx, etc.): copies to destination.
+        Returns False only for unsupported formats or on error.
+        """
         if not os.path.exists(file_path):
             return False
 
-        if not FileValidator.is_archive(file_path):
-            return False
+        if FileValidator.is_archive(file_path):
+            if not ArchiveHandler.extract(file_path, destination):
+                return False
+            # Process extracted files for nested archives
+            for root, _, files in os.walk(destination):
+                for file in files:
+                    source = os.path.join(root, file)
+                    if FileValidator.is_archive(source):
+                        cls.extract_files_recursive(source, root)
+            return True
 
-        if not ArchiveHandler.extract(file_path, destination):
-            return False
+        if FileValidator.is_parseable_document(file_path):
+            os.makedirs(destination, exist_ok=True)
+            dest_file = os.path.join(destination, os.path.basename(file_path))
+            base, ext = os.path.splitext(dest_file)
+            counter = 1
+            while os.path.exists(dest_file):
+                dest_file = f"{base}_{counter}{ext}"
+                counter += 1
+            shutil.copy2(file_path, dest_file)
+            return True
 
-        # Process extracted files
-        for root, _, files in os.walk(destination):
-            for file in files:
-                source = os.path.join(root, file)
-                if FileValidator.is_archive(source):
-                    cls.extract_files_recursive(source, root)
-        return True
+        return False
 
     @classmethod
     def batch_extract(

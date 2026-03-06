@@ -5,6 +5,30 @@
 
 ---
 
+## Overview
+
+GoblinTools provides a unified toolkit for extracting text from documents (PDF, DOCX, XLSX, etc.), handling archives (ZIP, RAR, 7z, 30+ formats), and cleaning text with Brazilian Portuguese support. OCR can use local Tesseract or AWS Textract. When AWS credentials are missing, the library falls back to local Tesseract with a warning.
+
+### Architecture
+
+```
+goblintools/
+├── parser.py        # TextExtractor - main extraction, format parsers
+├── file_handling.py # FileManager, ArchiveHandler, FileValidator
+├── text_cleaner.py  # TextCleaner - accent removal, stopwords
+├── config.py        # GoblinConfig, OCRConfig
+├── ocr_parser.py    # OCRProcessor - Tesseract / AWS Textract
+└── retry.py         # retry_with_backoff utility
+```
+
+### Processing Flow
+
+1. **Text extraction**: File → parser by extension → extracted text (with `file_path_pwd` tag)
+2. **PDF with images**: PyPDF first → OCR fallback if no text
+3. **Archive extraction**: Format handler → extract to temp → move with collision avoidance → optionally remove source
+
+---
+
 ## Installation
 
 ```bash
@@ -44,14 +68,14 @@ For complete archive format support, install these system tools (required by `pa
 
 ## Key Features
 
-- 📄 **Broad File Support**: Extract text from 20+ document, spreadsheet, and presentation formats
-- 📦 **Archive Handling**: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and 30+ more formats
-- 🔍 **OCR Integration**: Local Tesseract or cloud AWS Textract support
-- 🧹 **Text Cleaning**: Accent removal, case normalization, stopword filtering (Brazilian Portuguese support)
-- 🇧🇷 **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
-- ⚡ **Batch Processing**: Parallel archive extraction
-- 📁 **File Management**: Comprehensive file/directory operations
-- 📋 **File Path Tagging**: Automatically includes file path metadata in extracted text
+- **Broad File Support**: Extract text from 20+ document, spreadsheet, and presentation formats
+- **Archive Handling**: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and 30+ more formats
+- **OCR Integration**: Local Tesseract or cloud AWS Textract support
+- **Text Cleaning**: Accent removal, case normalization, stopword filtering (Brazilian Portuguese support)
+- **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
+- **Batch Processing**: Parallel archive extraction
+- **File Management**: Comprehensive file/directory operations
+- **File Path Tagging**: Automatically includes file path metadata in extracted text
 
 ---
 
@@ -168,8 +192,7 @@ text = extractor.extract_from_file("file.custom")
 # Output: file_path_pwd:"file.custom" extracted text
 
 # Direct OCR processing with config
-from goblintools.ocr_parser import OCRProcessor
-from goblintools import OCRConfig
+from goblintools import OCRProcessor, OCRConfig
 
 ocr_config = OCRConfig(use_aws=True, aws_access_key="key", aws_secret_key="secret")
 ocr = OCRProcessor(ocr_config)
@@ -235,8 +258,9 @@ if FileValidator.is_archive("file.zip"):
 if FileValidator.is_empty("file.txt"):
     print("File is empty")
 
-# Direct archive handling
+# Direct archive handling (remove_source=True deletes archive after extraction)
 ArchiveHandler.extract("archive.7z", "output")
+ArchiveHandler.extract("archive.7z", "output", remove_source=False)  # Keep source
 
 # Add custom archive format
 ArchiveHandler.add_format('.custom', lambda f, d: custom_extract(f, d))
@@ -362,7 +386,7 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 - `is_archive(file_path)` - Check if file is a supported archive format
 
 ### ArchiveHandler
-- `extract(file_path, destination)` - Extract archive with collision avoidance
+- `extract(file_path, destination, remove_source=True)` - Extract archive with collision avoidance. When `remove_source=True` (default), deletes the archive after extraction; set to `False` to keep it.
 - `add_format(extension, handler)` - Add support for new archive formats
 
 ### TextCleaner
@@ -383,6 +407,72 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 ### OCRConfig
 - `__init__(use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', tesseract_lang='por')` - Initialize OCR configuration
   - `tesseract_lang`: Language for Tesseract OCR (`'por'` for Portuguese, `'eng'` for English, `'por+eng'` for both)
+---
+
+## Scripts de Teste
+
+Run tests locally with pytest:
+
+```bash
+# Activate venv first
+source .venv/bin/activate  # or: .venv\Scripts\activate on Windows
+
+# Run all tests
+pytest tests/ -v
+
+# Or
+python -m pytest tests/ -v
+```
+
+---
+
+## Estrutura do Projeto
+
+```
+goblintools/
+├── goblintools/           # Package
+│   ├── __init__.py
+│   ├── parser.py          # TextExtractor
+│   ├── file_handling.py   # FileManager, ArchiveHandler, FileValidator
+│   ├── text_cleaner.py    # TextCleaner
+│   ├── config.py          # GoblinConfig, OCRConfig
+│   ├── ocr_parser.py      # OCRProcessor
+│   └── retry.py           # retry_with_backoff
+├── tests/                 # Pytest tests
+│   ├── conftest.py
+│   └── test_*.py
+├── pytest.ini
+├── pyproject.toml
+└── requirements.txt
+```
+
+---
+
+## Troubleshooting
+
+### "Tesseract is not installed or it's not in your PATH"
+
+Install Tesseract and the Portuguese language pack. See [System Dependencies](#system-dependencies) for OS-specific commands.
+
+### "AWS credentials not found; falling back to local Tesseract OCR"
+
+You set `use_aws=True` but did not provide `aws_access_key` and `aws_secret_key` in `OCRConfig`. The library falls back to local Tesseract. To use AWS Textract, pass credentials explicitly in config.
+
+### "No parser available for file extension"
+
+The file format is not supported. Use `extractor.add_parser('.ext', your_parser_func)` to add a custom parser.
+
+### Archive extraction fails for RAR/7z
+
+Install system tools: `unrar` and `p7zip`. See [Archive Support](#archive-support).
+
+---
+
+## Escopo e Limites
+
+- **In scope**: Text extraction from documents, spreadsheets, presentations; archive handling; OCR (Tesseract, AWS Textract); text cleaning (Portuguese-focused); file operations.
+- **Out of scope**: Real-time streaming, document conversion to other formats, indexing/search, web scraping. OCR requires Tesseract (local) or AWS credentials (cloud).
+
 ---
 
 ## License

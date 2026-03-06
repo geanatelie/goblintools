@@ -12,6 +12,11 @@ goblintools.egg-info/
 # Compiled Java class files
 *.class
 
+# Python virtual environment
+.venv/
+venv/
+env/
+
 # Compiled Python bytecode
 *.py[cod]
 

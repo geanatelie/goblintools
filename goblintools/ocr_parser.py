@@ -12,6 +12,7 @@ import multiprocessing
 from scipy.ndimage import rotate
 from goblintools.config import OCRConfig
 from goblintools.retry import retry_with_backoff
+from goblintools.log_policy import log_warning
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,10 @@ class OCRProcessor:
         self._textract_client = None
         # Fall back to local OCR when use_aws=True but credentials are missing
         if config.use_aws and (not config.aws_access_key or not config.aws_secret_key):
-            logger.warning(
+            log_warning(
+                logger,
                 "AWS credentials not found; falling back to local Tesseract OCR. "
-                "Provide aws_access_key and aws_secret_key in OCRConfig to use AWS Textract."
+                "Provide aws_access_key and aws_secret_key in OCRConfig to use AWS Textract.",
             )
             self._use_aws_effective = False
         else:

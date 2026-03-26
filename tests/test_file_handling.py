@@ -82,6 +82,11 @@ def test_detect_extension_from_magic(temp_dir):
         f.write("plain text")
     assert FileValidator.detect_extension_from_magic(txt_path) is None
 
+    no_ext = os.path.join(temp_dir, "anexo_1")
+    with open(no_ext, 'wb') as f:
+        f.write(b'%PDF-1.4\n% fake pdf header for magic sniff')
+    assert FileValidator.detect_extension_from_magic(no_ext) == '.pdf'
+
 
 def test_extract_files_recursive_pdf_named_as_zip(temp_dir):
     """Case B fallback: .zip file with PDF content."""
@@ -157,3 +162,22 @@ def test_file_manager_delete_if_empty():
         if os.path.exists(path):
             os.unlink(path)
         raise
+
+
+def test_move_files_extensionless_keeps_work_dir(temp_dir):
+    """Extensionless files must not target the work dir as dest (avoids moving outside + rmdir)."""
+    work = os.path.join(temp_dir, "work")
+    os.makedirs(work)
+    nested = os.path.join(work, "docs")
+    os.makedirs(nested)
+    no_ext = os.path.join(nested, "anexo_1")
+    with open(no_ext, "wb") as f:
+        f.write(b"%PDF-1.4\n%test")
+
+    FileManager.move_files(work)
+
+    assert os.path.isdir(work)
+    flat = os.path.join(work, "docs_anexo_1")
+    assert os.path.isfile(flat)
+    with open(flat, "rb") as f:
+        assert f.read().startswith(b"%PDF")

@@ -1,9 +1,13 @@
 """Tests for TextExtractor."""
+import logging
 import os
 import tempfile
 
 import pytest
+from pypdf import PdfWriter
+
 from goblintools import TextExtractor
+from goblintools.file_handling import FileValidator
 
 
 def test_extract_from_file_txt(sample_txt_file):
@@ -56,6 +60,26 @@ def test_add_parser():
         result = extractor.extract_from_file(path)
         assert "custom content" in result
         assert "file_path_pwd:" in result
+    finally:
+        os.unlink(path)
+
+
+def test_extract_from_file_extensionless_pdf(caplog):
+    """PDF without extension: magic bytes route to PDF parser (not 'no parser' warning)."""
+    fd, path = tempfile.mkstemp(suffix="")
+    os.close(fd)
+    try:
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with open(path, "wb") as f:
+            writer.write(f)
+        assert FileValidator.detect_extension_from_magic(path) == ".pdf"
+        extractor = TextExtractor()
+        with caplog.at_level(logging.WARNING):
+            result = extractor.extract_from_file(path)
+        assert "No parser available" not in caplog.text
+        # Blank page yields no text; would have raised / warned if extension were unknown
+        assert result == "" or "file_path_pwd:" in result
     finally:
         os.unlink(path)
 

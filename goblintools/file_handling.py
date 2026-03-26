@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Callable, Union
 
 from goblintools.retry import retry_with_backoff
+from goblintools.log_policy import _set_suppress_warnings, log_warning
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +51,29 @@ class FileValidator:
 
     @staticmethod
     def detect_extension_from_magic(file_path: str) -> Optional[str]:
-        """Detect actual file type from magic bytes. Used for Case B fallback."""
+        """Detect file type from content (extensionless PDF, RTF, OOXML in ZIP, etc.)."""
         try:
             with open(file_path, 'rb') as f:
-                header = f.read(8)
-            if header.startswith(b'%PDF'):
+                sniff = f.read(64)
+            header = sniff[:8]
+            if sniff.startswith(b'%PDF'):
                 return '.pdf'
+            stripped = sniff.lstrip()
+            if stripped.startswith(b'{\\rtf'):
+                return '.rtf'
+            # Office Open XML (ZIP): extensionless docx/xlsx/pptx inside archives
+            if header.startswith(b'PK\x03\x04'):
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zf:
+                        names = set(zf.namelist())
+                    if 'word/document.xml' in names:
+                        return '.docx'
+                    if 'xl/workbook.xml' in names:
+                        return '.xlsx'
+                    if 'ppt/presentation.xml' in names:
+                        return '.pptx'
+                except (zipfile.BadZipFile, OSError):
+                    pass
             return None
         except (OSError, IOError):
             return None
@@ -210,6 +228,12 @@ class ArchiveHandler:
 
 
 class FileManager:
+    """File extraction and cache helpers."""
+
+    def __init__(self, suppress_warnings: Optional[bool] = None):
+        if suppress_warnings is not None:
+            _set_suppress_warnings(suppress_warnings)
+
     @staticmethod
     def delete_if_empty(file_path: str) -> bool:
         """Delete file if it's empty. Returns True if deleted or doesn't exist."""
@@ -222,7 +246,7 @@ class FileManager:
         except FileNotFoundError:
             return True
         except PermissionError:
-            logger.warning(f"Permission denied deleting {file_path}")
+            log_warning(logger, f"Permission denied deleting {file_path}")
             return False
         except Exception as e:
             logger.error(f"Error checking/deleting {file_path}: {e}")
@@ -295,16 +319,28 @@ class FileManager:
                 # Same stem + different extensions (edital.pdf, edital.docx) never collide.
                 rel_path = os.path.relpath(source_path, folder_path)
                 file_ext = Path(file).suffix.lower()
-                # Replace path separators with _ so edital/arquivo.pdf -> edital_arquivo.pdf
-                dest_stem = rel_path[:-len(file_ext)] if rel_path.lower().endswith(file_ext) else rel_path
-                dest_stem = dest_stem.replace(os.sep, "_").rstrip("_")
-                dest_path = os.path.join(folder_path, f"{dest_stem}{file_ext}")
+                if not file_ext:
+                    # Extensionless (e.g. PDF saved as "anexo_1"): use full rel path as name.
+                    # Avoid endswith("") + rel_path[:-0] which would empty dest_stem.
+                    dest_name = rel_path.replace(os.sep, "_")
+                    dest_path = os.path.join(folder_path, dest_name)
+                else:
+                    dest_stem = (
+                        rel_path[:-len(file_ext)]
+                        if rel_path.lower().endswith(file_ext)
+                        else rel_path
+                    )
+                    dest_stem = dest_stem.replace(os.sep, "_").rstrip("_")
+                    dest_path = os.path.join(folder_path, f"{dest_stem}{file_ext}")
 
                 cls.move_file(source_path, dest_path)
 
-            # Remove empty directories
+            # Remove empty directories (never remove the root folder_path itself)
             try:
-                if not os.listdir(root):
+                if (
+                    os.path.abspath(root) != os.path.abspath(folder_path)
+                    and not os.listdir(root)
+                ):
                     os.rmdir(root)
             except Exception as e:
                 logger.error(f"Error removing directory {root}: {e}")

@@ -3,7 +3,9 @@ from .parser import TextExtractor
 from .text_cleaner import TextCleaner
 from .config import GoblinConfig, OCRConfig
 from .ocr_parser import OCRProcessor
+from .log_policy import configure
 
-__all__ = ['FileValidator', 'ArchiveHandler', 'FileManager', 
-           'TextExtractor', 'TextCleaner', 'GoblinConfig', 'OCRConfig', 'OCRProcessor']
+__all__ = ['FileValidator', 'ArchiveHandler', 'FileManager',
+           'TextExtractor', 'TextCleaner', 'GoblinConfig', 'OCRConfig', 'OCRProcessor',
+           'configure']
 __version__ = '0.6.4'

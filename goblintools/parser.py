@@ -18,13 +18,24 @@ from odf.text import P
 import docx
 from goblintools.ocr_parser import OCRProcessor
 from goblintools.config import GoblinConfig, OCRConfig
+from goblintools.log_policy import _set_suppress_warnings, log_warning
+from goblintools.file_handling import FileValidator
 
 logger = logging.getLogger(__name__)
 
 class TextExtractor:
     """Main class for handling text extraction from various file formats."""
 
-    def __init__(self, ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config: Optional[GoblinConfig] = None):
+    def __init__(
+        self,
+        ocr_handler=False,
+        use_aws=False,
+        aws_access_key=None,
+        aws_secret_key=None,
+        aws_region='us-east-1',
+        config: Optional[GoblinConfig] = None,
+        suppress_warnings: Optional[bool] = None,
+    ):
         """
         Initialize the text extractor.
 
@@ -35,12 +46,19 @@ class TextExtractor:
             aws_secret_key: AWS secret key
             aws_region: AWS region
             config: GoblinConfig object (overrides other parameters)
+            suppress_warnings: If True/False, sets warning suppression for the process.
+                If None (default), leaves the current setting unchanged (use
+                ``goblintools.configure(suppress_warnings=True)`` at startup, or pass
+                ``FileManager(suppress_warnings=True)`` before extraction).
         """
         self.config = config or GoblinConfig.default()
 
         # Override config with explicit parameters if provided
         if any([use_aws, aws_access_key, aws_secret_key, aws_region != 'us-east-1']):
             self.config.ocr = OCRConfig(use_aws, aws_access_key, aws_secret_key, aws_region)
+
+        if suppress_warnings is not None:
+            _set_suppress_warnings(suppress_warnings)
 
         if ocr_handler:
             self.ocr_handler = OCRProcessor(self.config.ocr)
@@ -92,14 +110,24 @@ class TextExtractor:
             Extracted text as string with file_path_pwd tag at the beginning
         """
         if not os.path.exists(file_path):
-            logger.warning(f"File not found: {file_path}")
+            log_warning(logger, f"File not found: {file_path}")
             return ""
 
         file_extension = Path(file_path).suffix.lower()
         parser = self.parsers.get(file_extension)
 
         if not parser:
-            logger.warning(f"No parser available for file extension: {file_extension}")
+            detected = FileValidator.detect_extension_from_magic(file_path)
+            if detected:
+                parser = self.parsers.get(detected)
+                if parser:
+                    file_extension = detected
+
+        if not parser:
+            log_warning(
+                logger,
+                f"No parser available for file extension: {file_extension or '(none)'}",
+            )
             return ""
 
         try:
@@ -124,7 +152,7 @@ class TextExtractor:
             Combined extracted text with file_path_pwd tags for each file
         """
         if not os.path.exists(folder_path):
-            logger.warning(f"Folder not found: {folder_path}")
+            log_warning(logger, f"Folder not found: {folder_path}")
             return ""
 
         all_texts = []
@@ -133,7 +161,7 @@ class TextExtractor:
                 file_path = os.path.join(root, file)
                 try:
                     if os.path.getsize(file_path) > self.config.max_file_size:
-                        logger.warning(f"Skipping large file: {file_path}")
+                        log_warning(logger, f"Skipping large file: {file_path}")
                         continue
                 except OSError:
                     continue
@@ -222,7 +250,7 @@ class TextExtractor:
                             for obj in xObject
                         )
                 except Exception as e:
-                    logger.warning(f"Error reading page {i} of {temp_file}: {e}")
+                    log_warning(logger, f"Error reading page {i} of {temp_file}: {e}")
 
         except Exception as e:
             logger.error(f"Failed to open PDF {file_path}: {e}")
@@ -241,7 +269,7 @@ class TextExtractor:
                 logger.info(f"OCR required for file: {file_path}")
                 return self.ocr_handler.extract_text_from_pdf(file_path)
             else:
-                logger.warning(f"The file {file_path} requires OCR but no handler was provided.")
+                log_warning(logger, f"The file {file_path} requires OCR but no handler was provided.")
 
         return extracted_text
 

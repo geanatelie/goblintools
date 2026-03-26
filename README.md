@@ -17,15 +17,17 @@ goblintools/
 ├── file_handling.py # FileManager, ArchiveHandler, FileValidator
 ├── text_cleaner.py  # TextCleaner - accent removal, stopwords
 ├── config.py        # GoblinConfig, OCRConfig
+├── log_policy.py    # configure() - library warning verbosity
 ├── ocr_parser.py    # OCRProcessor - Tesseract / AWS Textract
 └── retry.py         # retry_with_backoff utility
 ```
 
 ### Processing Flow
 
-1. **Text extraction**: File → parser by extension → extracted text (with `file_path_pwd` tag)
-2. **PDF with images**: PyPDF first → OCR fallback if no text
-3. **Archive extraction**: Format handler → extract to temp → move with collision avoidance → optionally remove source
+1. **Text extraction**: File → parser by extension; if unknown or **no extension**, magic-byte sniffing (PDF, RTF, Office Open XML) → extracted text (with `file_path_pwd` tag)
+2. **Folder extraction**: Each file’s tag uses the **path relative to the folder** (as inside a zip), e.g. `edital/arquivo.pdf` not the full filesystem path
+3. **PDF with images**: PyPDF first → OCR fallback if no text
+4. **Archive extraction**: Format handler → extract to temp → flatten with stable names (extensionless entries preserved) → optionally remove source. Misnamed archives (e.g. `.zip` that is a PDF) use **magic-byte fallbacks**
 
 ---
 
@@ -75,7 +77,9 @@ For complete archive format support, install these system tools (required by `pa
 - **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
 - **Batch Processing**: Parallel archive extraction
 - **File Management**: Comprehensive file/directory operations
-- **File Path Tagging**: Automatically includes file path metadata in extracted text
+- **File Path Tagging**: Automatically includes file path metadata in extracted text (relative paths for folder extraction)
+- **Extensionless files**: PDFs and other types without a filename extension are detected from content
+- **Quiet logs**: Optional suppression of GoblinTools warning logs via `configure()` or constructor flags
 
 ---
 
@@ -164,13 +168,30 @@ extractor = TextExtractor(ocr_handler=True, config=config)
 - `"por+eng"` - Portuguese + English (multi-language)
 - See [Tesseract documentation](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) for more languages
 
+### Warning logs (library-only)
+
+GoblinTools can hide its own `warning` log lines (errors and third-party libraries such as **patool** are unchanged):
+
+```python
+import goblintools
+from goblintools import TextExtractor, FileManager
+
+goblintools.configure(suppress_warnings=True)
+
+# Or per component:
+extractor = TextExtractor(suppress_warnings=True)
+file_manager = FileManager(suppress_warnings=True)
+```
+
+Passing `suppress_warnings=False` turns warnings back on. If you omit the argument on `TextExtractor()`, the current setting is left unchanged (so a prior `configure()` call still applies).
+
 ### Advanced Features
 
 ```python
 # Extract from entire folder (respects max_file_size limit)
-# Each file's text is prefixed with file_path_pwd tag
+# Each file's tag uses the path RELATIVE to folder_path (stable layout after zip extract)
 text = extractor.extract_from_folder("/path/to/documents")
-# Output: file_path_pwd:"/path/to/documents/file1.pdf" [text] file_path_pwd:"/path/to/documents/file2.docx" [text] ...
+# Example: file_path_pwd:"edital/anexo_1" ...  file_path_pwd:"anexo.pdf" ...
 
 # Check if PDF needs OCR
 if extractor.pdf_needs_ocr("document.pdf"):
@@ -206,26 +227,29 @@ text = ocr.extract_text_from_pdf("scanned.pdf")
 All extracted text automatically includes the file path as metadata using the `file_path_pwd` tag:
 
 ```python
-# Single file extraction
+# Single file extraction — tag uses the path you pass in
 text = extractor.extract_from_file("document.pdf")
-# Output format:
 # file_path_pwd:"document.pdf"
-# [extracted text content]
 
-# Folder extraction
-text = extractor.extract_from_folder("/path/to/documents")
-# Output format:
-# file_path_pwd:"/path/to/documents/file1.pdf" [text] file_path_pwd:"/path/to/documents/file2.docx" [text] ...
-
-# Example output:
-# file_path_pwd:"/docs/report.pdf" This is the content of the PDF file. file_path_pwd:"/docs/data.xlsx" Spreadsheet data here.
+# Folder extraction — tag uses path relative to the folder (like inside a zip)
+text = extractor.extract_from_folder("/cache/bidding_123")
+# file_path_pwd:"edital/anexo_1"
+# file_path_pwd:"docs/planilha.xlsx"
 ```
 
 **File Path Tagging Features:**
-- **Automatic tagging**: Every extracted text includes the source file path
+- **Automatic tagging**: Every extracted text includes a source path in the tag
+- **Folder mode**: Relative paths only (not the full `/cache/...` prefix), so tags stay stable across machines
+- **Extensionless names**: Files like `anexo_1` (PDF without extension) are still parsed when content matches known types
 - **Consistent format**: `file_path_pwd:"path/to/file"` prefix for easy parsing
-- **String output**: Simple string format, easy to process and search
-- **Source tracking**: Always know which file the text came from
+
+---
+
+Example helper script (repo root):
+
+```bash
+python scripts/extract_zip_and_text.py path/to/archive.zip [--ocr] [--suppress-warnings] [--work-dir DIR]
+```
 
 ---
 
@@ -234,8 +258,12 @@ text = extractor.extract_from_folder("/path/to/documents")
 ```python
 from goblintools import FileManager, FileValidator, ArchiveHandler
 
-# Single archive extraction (handles nested archives)
+# Single archive extraction (handles nested archives); class methods work unchanged
 FileManager.extract_files_recursive("archive.zip", "output_folder")
+
+# Or construct FileManager if you need suppress_warnings=True for the session
+fm = FileManager(suppress_warnings=True)
+# fm.extract_files_recursive(...)  # same APIs as on the class
 
 # Parallel batch extraction
 results = FileManager.batch_extract(["file1.zip", "file2.rar"], "output_folder")
@@ -268,7 +296,7 @@ ArchiveHandler.add_format('.custom', lambda f, d: custom_extract(f, d))
 # File operations with conflict resolution
 FileManager.move_file("source.txt", "destination.txt")  # Auto-renames if exists
 FileManager.delete_folder("temp_folder")
-FileManager.move_files("folder_path")  # Flatten + normalize names
+FileManager.move_files("folder_path")  # Flatten: relative paths → safe names (e.g. edital/arquivo.pdf → edital_arquivo.pdf); extensionless entries keep the basename
 ```
 
 ---
@@ -360,20 +388,26 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 
 ## API Reference
 
+### configure (module-level)
+Import from the package: `from goblintools import configure` (or `import goblintools; goblintools.configure(...)`).
+
+- `configure(suppress_warnings=None)` - If `True` / `False`, sets whether GoblinTools emits warning logs for the process. Omit or pass `None` for no change.
+
 ### TextExtractor
-- `__init__(ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config=None)` - Initialize extractor with OCR options or config
-- `extract_from_file(file_path)` - Extract text from single file. Returns `str` with `file_path_pwd:"path"` tag prefix
-- `extract_from_folder(folder_path)` - Extract text from all files in folder (recursively). Returns `str` with `file_path_pwd` tags for each file
+- `__init__(ocr_handler=False, use_aws=False, aws_access_key=None, aws_secret_key=None, aws_region='us-east-1', config=None, suppress_warnings=None)` - `suppress_warnings`: if `True`/`False`, updates library warning policy; if `None`, leaves current setting (e.g. from `configure()`)
+- `extract_from_file(file_path, display_path=None)` - Extract text from single file. Returns `str` with `file_path_pwd` tag; optional `display_path` overrides the tag path
+- `extract_from_folder(folder_path)` - Extract text from all files in folder (recursively). Tags use **paths relative to** `folder_path`
 - `pdf_needs_ocr(pdf_path)` - Check if PDF requires OCR processing
 - `add_parser(extension, parser_func)` - Add custom parser for file extension
 - `validate_installation()` - Check if dependencies are properly installed
 
 **Output Format:**
 - Always returns `str` (string) with extracted text
-- Each file's text is prefixed with `file_path_pwd:"file/path"` tag
-- Multiple files are concatenated with spaces between them
+- Each file's text is prefixed with a `file_path_pwd:"…"` tag (relative path for folder extraction)
+- Multiple files are joined with blank lines between segments
 
 ### FileManager
+- `__init__(suppress_warnings=None)` - If `True`/`False`, sets library warning suppression for the process
 - `extract_files_recursive(archive_path, output_path)` - Extract archive recursively
 - `batch_extract(archive_list, output_path, progress_callback=None)` - Extract multiple archives with optional progress tracking
 - `move_file(source, destination)` - Move/rename file with conflict resolution and type safety
@@ -384,6 +418,9 @@ extractor_multi = TextExtractor(ocr_handler=True, config=multi_config)
 ### FileValidator
 - `is_empty(file_path)` - Check if file is empty
 - `is_archive(file_path)` - Check if file is a supported archive format
+- `is_parseable_document(file_path)` - Known document extension (pdf, docx, …)
+- `is_zip_by_magic(file_path)` - ZIP signature sniff (misnamed PDF-as-ZIP handling)
+- `detect_extension_from_magic(file_path)` - Infer `.pdf`, `.rtf`, `.docx`, `.xlsx`, `.pptx` from content when the filename has no/wrong extension
 
 ### ArchiveHandler
 - `extract(file_path, destination, remove_source=True)` - Extract archive with collision avoidance. When `remove_source=True` (default), deletes the archive after extraction; set to `False` to keep it.
@@ -436,8 +473,10 @@ goblintools/
 │   ├── file_handling.py   # FileManager, ArchiveHandler, FileValidator
 │   ├── text_cleaner.py    # TextCleaner
 │   ├── config.py          # GoblinConfig, OCRConfig
+│   ├── log_policy.py      # configure()
 │   ├── ocr_parser.py      # OCRProcessor
 │   └── retry.py           # retry_with_backoff
+├── scripts/               # e.g. extract_zip_and_text.py
 ├── tests/                 # Pytest tests
 │   ├── conftest.py
 │   └── test_*.py
@@ -460,7 +499,7 @@ You set `use_aws=True` but did not provide `aws_access_key` and `aws_secret_key`
 
 ### "No parser available for file extension"
 
-The file format is not supported. Use `extractor.add_parser('.ext', your_parser_func)` to add a custom parser.
+The file format is not supported, or the file has no extension and content could not be identified. PDFs, RTF, and Office Open XML (ZIP) are sniffed automatically; use `extractor.add_parser('.ext', your_parser_func)` for other types.
 
 ### Archive extraction fails for RAR/7z
 

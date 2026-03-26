@@ -8,4 +8,4 @@ from .log_policy import configure
 __all__ = ['FileValidator', 'ArchiveHandler', 'FileManager',
            'TextExtractor', 'TextCleaner', 'GoblinConfig', 'OCRConfig', 'OCRProcessor',
            'configure']
-__version__ = '0.6.4'
+__version__ = '0.7.1'

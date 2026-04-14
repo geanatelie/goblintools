@@ -132,7 +132,7 @@ class TextExtractor:
 
         try:
             extracted_text = parser(file_path)
-            if not extracted_text:
+            if not extracted_text or not str(extracted_text).strip():
                 return ""
             path_for_tag = display_path if display_path is not None else file_path
             return f'file_path_pwd:"{path_for_tag}"\n{extracted_text}'

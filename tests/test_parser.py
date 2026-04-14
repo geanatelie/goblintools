@@ -64,6 +64,22 @@ def test_add_parser():
         os.unlink(path)
 
 
+def test_extract_from_file_no_file_path_when_whitespace_only():
+    """Corrupt/blank docs may yield only whitespace; do not emit file_path_pwd without real text."""
+    extractor = TextExtractor()
+
+    def whitespace_parser(path):
+        return "   \n\t  "
+
+    extractor.add_parser('.ws', whitespace_parser)
+    with tempfile.NamedTemporaryFile(suffix='.ws', delete=False) as f:
+        path = f.name
+    try:
+        assert extractor.extract_from_file(path) == ""
+    finally:
+        os.unlink(path)
+
+
 def test_extract_from_file_extensionless_pdf(caplog):
     """PDF without extension: magic bytes route to PDF parser (not 'no parser' warning)."""
     fd, path = tempfile.mkstemp(suffix="")
@@ -78,8 +94,8 @@ def test_extract_from_file_extensionless_pdf(caplog):
         with caplog.at_level(logging.WARNING):
             result = extractor.extract_from_file(path)
         assert "No parser available" not in caplog.text
-        # Blank page yields no text; would have raised / warned if extension were unknown
-        assert result == "" or "file_path_pwd:" in result
+        # Blank page yields no extractable text — no file_path_pwd without content
+        assert result == ""
     finally:
         os.unlink(path)
 

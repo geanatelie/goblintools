@@ -51,3 +51,27 @@ def test_custom_stopwords():
     assert "with" in result
     assert "custom" not in result
     assert "words" not in result
+
+
+def test_remove_text_noise_empty():
+    """remove_text_noise returns empty for falsy input."""
+    cleaner = TextCleaner()
+    assert cleaner.remove_text_noise("") == ""
+
+
+def test_remove_text_noise_whitespace_and_dots():
+    """Collapses runs of whitespace and strips repeated dots."""
+    cleaner = TextCleaner()
+    assert cleaner.remove_text_noise("a  b   c") == "a b c"
+    assert cleaner.remove_text_noise("x\n\n\ty") == "x y"
+    assert cleaner.remove_text_noise("no..dots...here") == "nodotshere"
+    assert cleaner.remove_text_noise("  padded  ") == "padded"
+
+
+def test_remove_text_noise_preserves_unicode():
+    """Unlike clean_text, does not strip accents (no unidecode)."""
+    cleaner = TextCleaner()
+    assert "ç" in cleaner.remove_text_noise("Ação   oficial")
+    assert "ã" in cleaner.remove_text_noise("Ação   oficial")
+    out = cleaner.remove_text_noise("São   Paulo")
+    assert out == "São Paulo"

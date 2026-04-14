@@ -15,7 +15,7 @@ GoblinTools provides a unified toolkit for extracting text from documents (PDF, 
 goblintools/
 ├── parser.py        # TextExtractor - main extraction, format parsers
 ├── file_handling.py # FileManager, ArchiveHandler, FileValidator
-├── text_cleaner.py  # TextCleaner - accent removal, stopwords
+├── text_cleaner.py  # TextCleaner - clean_text, remove_text_noise, stopwords
 ├── config.py        # GoblinConfig, OCRConfig
 ├── log_policy.py    # configure() - library warning verbosity
 ├── ocr_parser.py    # OCRProcessor - Tesseract / AWS Textract
@@ -73,7 +73,7 @@ For complete archive format support, install these system tools (required by `pa
 - **Broad File Support**: Extract text from 20+ document, spreadsheet, and presentation formats
 - **Archive Handling**: Supports `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, and 30+ more formats
 - **OCR Integration**: Local Tesseract or cloud AWS Textract support
-- **Text Cleaning**: Accent removal, case normalization, stopword filtering (Brazilian Portuguese support)
+- **Text Cleaning**: `clean_text` (accent folding via unidecode, optional stopwords); `remove_text_noise` (spacing / repeated dots only, **preserves Unicode**)
 - **Portuguese OCR**: Optimized for Brazilian Portuguese documents with Tesseract
 - **Batch Processing**: Parallel archive extraction
 - **File Management**: Comprehensive file/directory operations
@@ -327,7 +327,20 @@ clean = custom_cleaner.remove_stopwords("custom text with words")
 portuguese_text = "Este é um documento em português com acentuação!"
 clean_pt = cleaner.clean_text(portuguese_text, lowercase=True, remove_stopwords=True)
 # Output: "documento portugues acentuacao"
+
+# Light noise removal only (collapse whitespace, strip runs of dots) — keeps accents
+noisy = "São   Paulo...  centro"
+cleaner.remove_text_noise(noisy)
+# Output: "São Paulo centro"
 ```
+
+**`clean_text` vs `remove_text_noise`**
+
+| | `clean_text` | `remove_text_noise` |
+|---|----------------|---------------------|
+| Repeated dots / extra spaces | Yes | Yes |
+| Accent handling | ASCII fold (`unidecode`) | **Unchanged** (keeps ç, ã, etc.) |
+| Stopwords / lowercase | Optional | No |
 
 ---
 
@@ -428,7 +441,8 @@ Import from the package: `from goblintools import configure` (or `import goblint
 
 ### TextCleaner
 - `__init__(custom_stopwords=None)` - Initialize with custom stopwords (defaults to Portuguese)
-- `clean_text(text, lowercase=False, remove_stopwords=False)` - Clean and normalize text
+- `clean_text(text, lowercase=False, remove_stopwords=False)` - Normalize whitespace and dots, apply `unidecode`, optional lowercase and Portuguese stopword removal
+- `remove_text_noise(text)` - Collapse repeated whitespace and strip runs of dots (`..`, `...`); **does not** transliterate accents (use when you need to keep UTF-8 as-is)
 - `remove_stopwords(text)` - Remove stopwords from text
 
 ### OCRProcessor

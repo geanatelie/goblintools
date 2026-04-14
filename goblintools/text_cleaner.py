@@ -68,9 +68,9 @@ class TextCleaner:
         if lowercase:
             text = text.lower()
 
-        text = re.sub(r'\.{2,}', '', text) 
-        text = re.sub(r'\s+', ' ', text)    
-        text = unidecode(text)             
+        text = re.sub(r'\.{2,}', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        text = unidecode(text)
         text = text.strip()
 
         if remove_stopwords and self.stopwords:
@@ -79,6 +79,16 @@ class TextCleaner:
             text = ' '.join(words)
 
         return text
+
+    def remove_text_noise(self, text: str) -> str:
+        """Collapse noisy spacing and repeated dots; preserve Unicode (including accents)."""
+        if not text:
+            return ""
+
+        text = re.sub(r"\.{2,}", "", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
 
     def remove_stopwords(self, text: str) -> str:
         words = text.split()

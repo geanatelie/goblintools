@@ -80,6 +80,22 @@ def test_extract_from_file_no_file_path_when_whitespace_only():
         os.unlink(path)
 
 
+def test_extract_from_file_no_file_path_when_only_zero_width_and_format_chars():
+    """PyPDF on damaged PDFs can return ZWSP/format chars that str.strip() does not remove."""
+    extractor = TextExtractor()
+
+    def invisible_parser(path):
+        return "\u200b\u200c\u2060\ufeff"
+
+    extractor.add_parser('.inv', invisible_parser)
+    with tempfile.NamedTemporaryFile(suffix='.inv', delete=False) as f:
+        path = f.name
+    try:
+        assert extractor.extract_from_file(path) == ""
+    finally:
+        os.unlink(path)
+
+
 def test_extract_from_file_extensionless_pdf(caplog):
     """PDF without extension: magic bytes route to PDF parser (not 'no parser' warning)."""
     fd, path = tempfile.mkstemp(suffix="")
@@ -112,6 +128,21 @@ def test_extract_from_folder_uses_relative_path():
         result = extractor.extract_from_folder(tmpdir)
         assert 'file_path_pwd:"edital/arquivo.txt"' in result
         assert "content from edital/arquivo" in result
+
+
+def test_pypdf_workarounds_idempotent():
+    from goblintools.pypdf_workarounds import apply_pypdf_extraction_workarounds
+
+    apply_pypdf_extraction_workarounds()
+    apply_pypdf_extraction_workarounds()
+
+
+def test_merge_page_texts_prefers_primary_then_secondary():
+    """_merge_page_texts keeps primary when present and fills blanks from secondary."""
+    extractor = TextExtractor()
+    merged, still_empty = extractor._merge_page_texts(["a", "", "c"], ["x", "b", ""])
+    assert merged == ["a", "b", "c"]
+    assert still_empty == set()
 
 
 def test_validate_installation():

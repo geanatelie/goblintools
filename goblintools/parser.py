@@ -1,7 +1,8 @@
 import csv
 import logging
 import os
-from typing import Dict, Callable, Optional
+import unicodedata
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
@@ -10,6 +11,10 @@ from dbfread import DBF
 from pptx import Presentation
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import IndirectObject
+
+from goblintools.pypdf_workarounds import apply_pypdf_extraction_workarounds
+
+apply_pypdf_extraction_workarounds()
 import openpyxl
 import xlrd
 from odf import text, teletype
@@ -22,6 +27,20 @@ from goblintools.log_policy import _set_suppress_warnings, log_warning
 from goblintools.file_handling import FileValidator
 
 logger = logging.getLogger(__name__)
+
+
+def _has_meaningful_text(text: str) -> bool:
+    """True if *text* has at least one letter, number, punctuation, symbol, or mark.
+
+    Corrupt or blank PDFs often yield only whitespace, zero-width spaces (U+200B), or
+    other format/control characters that survive :meth:`str.strip` but carry no content.
+    """
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat[0] in ("L", "N", "P", "S", "M"):
+            return True
+    return False
+
 
 class TextExtractor:
     """Main class for handling text extraction from various file formats."""
@@ -132,7 +151,7 @@ class TextExtractor:
 
         try:
             extracted_text = parser(file_path)
-            if not extracted_text or not str(extracted_text).strip():
+            if not extracted_text or not _has_meaningful_text(str(extracted_text)):
                 return ""
             path_for_tag = display_path if display_path is not None else file_path
             return f'file_path_pwd:"{path_for_tag}"\n{extracted_text}'
@@ -179,7 +198,10 @@ class TextExtractor:
             with open(file_path, 'rb') as f:
                 reader = PdfReader(f)
                 for page in reader.pages:
-                    text = page.extract_text()
+                    try:
+                        text = self._pypdf_try_extract_text(page)
+                    except Exception:
+                        continue
                     if text and not text.isspace():
                         return False
             return True
@@ -187,15 +209,84 @@ class TextExtractor:
             logger.error(f"Error checking PDF {file_path}: {e}")
             return True
 
+    def _pypdf_try_extract_text(self, page) -> str:
+        """Try plain then layout (newer pypdf); fall back to legacy extract_text()."""
+        last_error: Optional[Exception] = None
+        for mode in ("plain", "layout"):
+            try:
+                t = page.extract_text(extraction_mode=mode)
+                if t:
+                    return t
+            except TypeError:
+                break
+            except Exception as e:
+                last_error = e
+                continue
+        try:
+            return page.extract_text() or ""
+        except Exception:
+            if last_error:
+                raise last_error
+            raise
+
+    def _pdf_page_has_images(self, page) -> bool:
+        resources = page.get("/Resources")
+        if isinstance(resources, IndirectObject):
+            resources = resources.get_object()
+        if not resources or "/XObject" not in resources:
+            return False
+        xobject = resources["/XObject"]
+        if isinstance(xobject, IndirectObject):
+            xobject = xobject.get_object()
+        return any(
+            xobject[obj].get("/Subtype") == "/Image" for obj in xobject
+        )
+
+    def _pypdf_extract_pages(
+        self, pdf_path: str
+    ) -> Tuple[List[str], Set[int], bool]:
+        """Per-page PyPDF text; failed indices; whether any page references images."""
+        reader = PdfReader(pdf_path)
+        texts: List[str] = []
+        failed: Set[int] = set()
+        has_images = False
+        for i, page in enumerate(reader.pages):
+            try:
+                text = self._pypdf_try_extract_text(page)
+                texts.append(text or "")
+            except Exception as e:
+                log_warning(logger, f"Error reading page {i} of {pdf_path}: {e}")
+                texts.append("")
+                failed.add(i)
+            try:
+                if not has_images and self._pdf_page_has_images(page):
+                    has_images = True
+            except Exception:
+                pass
+        return texts, failed, has_images
+
+    def _merge_page_texts(
+        self, primary: List[str], secondary: List[str]
+    ) -> Tuple[List[str], Set[int]]:
+        """Fill empty primary slots from secondary; return merged list and still-empty indices."""
+        n = max(len(primary), len(secondary))
+        merged = []
+        for i in range(n):
+            a = primary[i] if i < len(primary) else ""
+            b = secondary[i] if i < len(secondary) else ""
+            merged.append(a if (a and a.strip()) else (b or ""))
+        failed = {i for i, t in enumerate(merged) if not (t and t.strip())}
+        return merged, failed
+
     def _resave_pdf(self, file_path: str) -> str:
-        """Resave PDF to fix potential issues"""
+        """Resave PDF to fix potential xref/stream issues (used as second attempt)."""
         reader = PdfReader(file_path)
         writer = PdfWriter()
         for page in reader.pages:
             writer.add_page(page)
 
         output_path = Path(file_path).with_suffix(".resaved.pdf")
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             writer.write(f)
 
         return str(output_path)
@@ -224,52 +315,75 @@ class TextExtractor:
 
     # Individual parser methods
     def _extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF files using PyPDF, with fallback to OCR if needed."""
-        extracted_text = ''
+        """Extract text with PyPDF; resave retry; per-page OCR for gaps when handler is set."""
+        temp_file: Optional[str] = None
+        page_texts: List[str] = []
         has_images = False
-        temp_file = None
+        extracted_text = ""
+
+        def run_pypdf(path: str) -> Tuple[List[str], Set[int], bool]:
+            return self._pypdf_extract_pages(path)
 
         try:
-            temp_file = self._resave_pdf(file_path)
-            reader = PdfReader(temp_file)
-
-            for i, page in enumerate(reader.pages):
-                try:
-                    extracted_text += page.extract_text() or ''
-
-                    resources = page.get('/Resources')
-                    if isinstance(resources, IndirectObject):
-                        resources = resources.get_object()
-
-                    if not has_images and resources and '/XObject' in resources:
-                        xObject = resources['/XObject']
-                        if isinstance(xObject, IndirectObject):
-                            xObject = xObject.get_object()
-                        has_images = any(
-                            xObject[obj].get('/Subtype') == '/Image'
-                            for obj in xObject
+            try:
+                page_texts, failed, has_images = run_pypdf(file_path)
+            except Exception as e:
+                log_warning(
+                    logger,
+                    f"PyPDF read failed on original {file_path}: {e}; trying resaved copy.",
+                )
+                page_texts, failed, has_images = [], set(), False
+                temp_file = self._resave_pdf(file_path)
+                page_texts, failed, has_images = run_pypdf(temp_file)
+            else:
+                if failed:
+                    try:
+                        temp_file = self._resave_pdf(file_path)
+                        alt_texts, _alt_failed, alt_img = run_pypdf(temp_file)
+                        page_texts, still_failed = self._merge_page_texts(
+                            page_texts, alt_texts
                         )
-                except Exception as e:
-                    log_warning(logger, f"Error reading page {i} of {temp_file}: {e}")
+                        has_images = has_images or alt_img
+                        failed = still_failed
+                    except Exception as e:
+                        log_warning(
+                            logger,
+                            f"PyPDF resave retry failed for {file_path}: {e}",
+                        )
+
+            if failed and self.ocr_handler:
+                logger.info(
+                    "OCR fallback for %d page(s) of %s (PyPDF could not decode them)",
+                    len(failed),
+                    file_path,
+                )
+                ocr_by_page = self.ocr_handler.extract_text_from_pdf_page_indices(
+                    file_path, sorted(failed)
+                )
+                for idx in failed:
+                    if idx in ocr_by_page and ocr_by_page[idx]:
+                        page_texts[idx] = ocr_by_page[idx]
+
+            extracted_text = "\n".join(page_texts)
 
         except Exception as e:
             logger.error(f"Failed to open PDF {file_path}: {e}")
-            return ''
+            return ""
         finally:
-            # Clean up temporary file
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
                 except OSError:
                     pass
 
-        # Fallback to OCR
-        if not extracted_text.strip() and has_images:
+        if not _has_meaningful_text(extracted_text) and has_images:
             if self.ocr_handler:
                 logger.info(f"OCR required for file: {file_path}")
                 return self.ocr_handler.extract_text_from_pdf(file_path)
-            else:
-                log_warning(logger, f"The file {file_path} requires OCR but no handler was provided.")
+            log_warning(
+                logger,
+                f"The file {file_path} requires OCR but no handler was provided.",
+            )
 
         return extracted_text
 

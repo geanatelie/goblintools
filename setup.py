@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="goblintools",
-    version="0.7.3",
+    version="0.7.6",
     packages=find_packages(),
     install_requires=[
         "patool",
@@ -11,7 +11,7 @@ setup(
         "opencv-python-headless",
         "numpy",
         "pdf2image",
-        "pypdf",
+        "pypdf>=6.10.2",
         "beautifulsoup4",
         "striprtf",
         "dbfread",

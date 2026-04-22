@@ -1,7 +1,7 @@
 boto3
 unidecode
 python-pptx
-pypdf
+pypdf>=6.10.2
 beautifulsoup4
 openpyxl
 python-docx

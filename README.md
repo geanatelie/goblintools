@@ -13,20 +13,21 @@ GoblinTools provides a unified toolkit for extracting text from documents (PDF, 
 
 ```
 goblintools/
-├── parser.py        # TextExtractor - main extraction, format parsers
-├── file_handling.py # FileManager, ArchiveHandler, FileValidator
-├── text_cleaner.py  # TextCleaner - clean_text, remove_text_noise, stopwords
-├── config.py        # GoblinConfig, OCRConfig
-├── log_policy.py    # configure() - library warning verbosity
-├── ocr_parser.py    # OCRProcessor - Tesseract / AWS Textract
-└── retry.py         # retry_with_backoff utility
+├── parser.py             # TextExtractor - main extraction, format parsers
+├── pypdf_workarounds.py  # PyPDF monkey-patches (indirect font metrics, optional stream cap)
+├── file_handling.py      # FileManager, ArchiveHandler, FileValidator
+├── text_cleaner.py       # TextCleaner - clean_text, remove_text_noise, stopwords
+├── config.py             # GoblinConfig, OCRConfig
+├── log_policy.py         # configure() - library warning verbosity
+├── ocr_parser.py         # OCRProcessor - Tesseract / AWS Textract
+└── retry.py              # retry_with_backoff utility
 ```
 
 ### Processing Flow
 
 1. **Text extraction**: File → parser by extension; if unknown or **no extension**, magic-byte sniffing (PDF, RTF, Office Open XML) → extracted text (with `file_path_pwd` tag)
 2. **Folder extraction**: Each file’s tag uses the **path relative to the folder** (as inside a zip), e.g. `edital/arquivo.pdf` not the full filesystem path
-3. **PDF with images**: PyPDF first → OCR fallback if no text
+3. **PDF text**: [pypdf](https://pypi.org/project/pypdf/) (≥ 6.10.2) with built-in workarounds for common producer bugs (e.g. font widths as indirect references). The reader tries the file as-is, merges text from an internal resave when some pages fail, then uses plain and layout extraction modes. **Optional OCR** (`ocr_handler=True`): full-document OCR when the PDF has images but almost no text, or **per-page OCR** only for pages PyPDF still cannot decode (requires Poppler for `pdf2image` and Tesseract for local OCR)
 4. **Archive extraction**: Format handler → extract to temp → flatten with stable names (extensionless entries preserved) → optionally remove source. Misnamed archives (e.g. `.zip` that is a PDF) use **magic-byte fallbacks**
 
 ---
@@ -39,10 +40,18 @@ pip install goblintools
 
 ## Requirements
 
-- **Python**: 3.7 or newer
+- **Python**: 3.9 or newer
+- **pypdf**: 6.10.2 or newer (declared in package metadata; used for PDF text extraction)
 - **Tesseract OCR**: Required for local OCR support ([Installation Guide](https://github.com/tesseract-ocr/tesseract))
   - **Portuguese Language Pack**: Install `tesseract-ocr-por` for Portuguese text recognition
+- **Poppler**: Required when using OCR on PDFs (`pdf2image`); install `poppler-utils` (Debian/Ubuntu) or your OS equivalent
 - **AWS Credentials**: Required for AWS Textract cloud OCR
+
+### PDF extraction notes
+
+- Importing `TextExtractor` applies **pypdf workarounds** once (idempotent): safer handling of indirect `/Widths` and `space_width` values that otherwise trigger `TypeError` during `extract_text()`.
+- If your pypdf build exposes `MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH` on `pypdf.filters`, the library increases that limit slightly so very large but legitimate content streams can still be decoded; if the attribute is missing (some forks or versions), that step is skipped automatically.
+- For scanned PDFs or pages with no usable text layer, enable **`TextExtractor(ocr_handler=True)`** and install Poppler + Tesseract.
 
 ---
 
@@ -79,6 +88,7 @@ For complete archive format support, install these system tools (required by `pa
 - **File Management**: Comprehensive file/directory operations
 - **File Path Tagging**: Automatically includes file path metadata in extracted text (relative paths for folder extraction)
 - **Extensionless files**: PDFs and other types without a filename extension are detected from content
+- **Robust PDF pipeline**: PyPDF workarounds, resave merge for partial failures, optional targeted OCR for stubborn pages when an OCR handler is configured
 - **Quiet logs**: Optional suppression of GoblinTools warning logs via `configure()` or constructor flags
 
 ---
@@ -525,6 +535,14 @@ Install system tools: `unrar` and `p7zip`. See [Archive Support](#archive-suppor
 
 - **In scope**: Text extraction from documents, spreadsheets, presentations; archive handling; OCR (Tesseract, AWS Textract); text cleaning (Portuguese-focused); file operations.
 - **Out of scope**: Real-time streaming, document conversion to other formats, indexing/search, web scraping. OCR requires Tesseract (local) or AWS credentials (cloud).
+
+---
+
+## Release highlights (0.7.6)
+
+- **PyPDF reliability**: Runtime fixes for `IndirectObject` font metrics and related `extract_text()` failures on real-world editais; compatible with pypdf versions that omit `MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH` on `pypdf.filters`.
+- **PDF extraction flow**: Read original PDF first, merge with an internal resave when needed, try multiple extraction modes, optional per-page OCR for gaps when `ocr_handler=True`.
+- **Python**: Minimum version remains 3.9; `pypdf>=6.10.2` is required.
 
 ---
 

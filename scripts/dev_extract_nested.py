@@ -96,7 +96,7 @@ def main() -> int:
 
     out.mkdir(parents=True, exist_ok=True)
 
-    fm = FileManager(suppress_warnings=True)
+    fm = FileManager(suppress_warnings=False)
     ok = fm.extract_files_recursive(str(archive), str(out))
     if not ok:
         print(f"extract_files_recursive failed for {archive}", file=sys.stderr)
@@ -111,7 +111,7 @@ def main() -> int:
     if not args.skip_text:
         extractor = TextExtractor(
             ocr_handler=args.ocr,
-            suppress_warnings=True,
+            suppress_warnings=False,
         )
         text = extractor.extract_from_folder(str(out))
         print("\n" + "=" * 72)

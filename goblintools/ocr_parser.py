@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List
+from typing import Dict, List, Sequence
 
 import boto3
 import cv2
@@ -127,3 +127,28 @@ class OCRProcessor:
             with multiprocessing.Pool(processes=n_workers) as pool:
                 extracted_text = pool.map(self._process_page_local, images)
             return [text if text else "" for text in extracted_text]
+
+    def extract_text_from_pdf_page_indices(
+        self, pdf_path: str, page_indices: Sequence[int]
+    ) -> Dict[int, str]:
+        """OCR only selected 0-based pages (e.g. PyPDF failures). Skips invalid indices."""
+        out: Dict[int, str] = {}
+        for idx in page_indices:
+            if idx < 0:
+                continue
+            try:
+                images = convert_from_path(
+                    pdf_path, first_page=idx + 1, last_page=idx + 1
+                )
+            except Exception as e:
+                logger.warning("OCR skip page %s of %s: %s", idx, pdf_path, e)
+                continue
+            if not images:
+                continue
+            image = images[0]
+            if self._use_aws_effective:
+                text = self._process_page_aws(np.array(image))
+            else:
+                text = self._process_page_local(image)
+            out[idx] = (text or "").strip()
+        return out

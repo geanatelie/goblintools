@@ -282,6 +282,9 @@ class FileManager:
                 logger.info(f"Skipping empty file: {source_path}")
                 return False
 
+            if source_path.resolve() == dest_path.resolve():
+                return True
+
             # Ensure destination directory exists
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             
@@ -309,6 +312,9 @@ class FileManager:
             return
 
         for root, _, files in os.walk(folder_path):
+            if os.path.abspath(root) == os.path.abspath(folder_path):
+                continue
+
             for file in files:
                 source_path = os.path.join(root, file)
                 if cls.delete_if_empty(source_path):

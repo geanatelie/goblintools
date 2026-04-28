@@ -181,3 +181,30 @@ def test_move_files_extensionless_keeps_work_dir(temp_dir):
     assert os.path.isfile(flat)
     with open(flat, "rb") as f:
         assert f.read().startswith(b"%PDF")
+
+
+def test_move_files_root_level_file_not_renamed(temp_dir):
+    """Files already at the root of the target folder must not be renamed with _1."""
+    work = os.path.join(temp_dir, "work")
+    os.makedirs(work)
+    root_file = os.path.join(work, "edital.pdf")
+    with open(root_file, "wb") as f:
+        f.write(b"%PDF-1.4\n%test")
+
+    FileManager.move_files(work)
+
+    assert os.path.isfile(root_file), "edital.pdf must remain with its original name"
+    assert not os.path.exists(os.path.join(work, "edital_1.pdf")), "_1 suffix must not be added"
+
+
+def test_move_file_source_equals_destination_is_noop(temp_dir):
+    """move_file with source == destination must not rename or raise."""
+    path = os.path.join(temp_dir, "edital.pdf")
+    with open(path, "wb") as f:
+        f.write(b"%PDF-1.4\n%test")
+
+    result = FileManager.move_file(path, path)
+
+    assert result is True
+    assert os.path.isfile(path), "file must still exist at its original path"
+    assert not os.path.exists(os.path.join(temp_dir, "edital_1.pdf")), "_1 suffix must not be added"
